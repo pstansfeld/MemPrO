@@ -319,4 +319,4 @@ If your protein hasn't oriented correctly there are a number of things to try:
 
 ## FAQ
 
-There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact m.parrag@warwick.ac.uk.
+There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact phillip.stansfeld@warwick.ac.uk.
