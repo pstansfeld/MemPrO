@@ -1,7 +1,27 @@
-#Version 6 of MemBrain (WIP)
+#Version X of MemPrO
 
 import os
+import sys
 import warnings
+import argparse
+
+# Pre-parse -nc and -p before JAX initialises at module level.
+# Only active when run directly (python MemPrO.py); when imported as a
+# library or via the installed entry point (_cli.py), this is a no-op.
+if __name__ == "__main__":
+    _pre = argparse.ArgumentParser(add_help=False)
+    _pre.add_argument("-nc", "--num_cpus", type=int, default=None)
+    _pre.add_argument("-p", "--platform", default=None, choices=["cpu", "gpu"])
+    _pre_args, _ = _pre.parse_known_args()
+    if _pre_args.num_cpus is not None:
+        os.environ["NUM_CPU"] = str(_pre_args.num_cpus)
+    if _pre_args.platform is not None:
+        os.environ["MEMPRO_PLATFORM"] = _pre_args.platform
+
+# Suppress XLA/Eigen bitcode and TF C++ warnings before JAX initialises
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")
+
 import jax.numpy as jnp
 from jax import config
 import jax
@@ -16,7 +36,7 @@ import shutil
 from collections import defaultdict
 
 
-PATH_TO_INSANE = os.environ["PATH_TO_INSANE"]
+PATH_TO_INSANE = os.environ.get("PATH_TO_INSANE", "")
 
 warnings.filterwarnings('ignore')
 
@@ -59,25 +79,35 @@ AtomsToBead = [[["N","C","O"],["CB"]],[["N","C","O","CA"]],[["N","C","O"],["CB",
 				 [["N","C","O"],["CB","CG","ND2"]],[["N","C","O"],["CD","CG","NE2"]],[["N","C","O"],["SG","CB"]],[["N","C","O"],["SD","CE","CG"]],[]]	
 		
 	
-#We need to force JAX to fully utilize a multi-core cpu
-no_cpu = int(os.environ["NUM_CPU"])
-os.environ["XLA_FLAGS"] = "--xla_cpu_use_thunk_runtime=false --xla_force_host_platform_device_count="+str(no_cpu)
+# ---------------------------------------------------------------------------
+# Platform setup — controlled by MEMPRO_PLATFORM env var (set by the script).
+# 'cpu'  : multi-core CPU via fake XLA devices (default)
+# 'gpu'  : CUDA GPU(s); requires jax[cuda]
+# ---------------------------------------------------------------------------
+_platform = os.environ.get("MEMPRO_PLATFORM", "cpu").lower()
 
+config.update("jax_enable_x64", True)
+
+if _platform == "gpu":
+    _gpu_devices = jax.devices("gpu")
+    if not _gpu_devices:
+        raise RuntimeError(
+            "No GPU devices found. Install jax[cuda] or run without -p gpu."
+        )
+    no_cpu = int(os.environ.get("NUM_CPU", len(_gpu_devices)))
+else:
+    # CPU: create fake multi-device backend so pmap can use all cores
+    no_cpu = int(os.environ.get("NUM_CPU", os.cpu_count()))
+    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(no_cpu)
+    config.update("jax_platform_name", "cpu")
 
 #This is useful for debugging nans in grad
 #config.update("jax_debug_nans",True)
 
-#forcing JAX to use x64 floats rather than x32
-config.update("jax_enable_x64",True)
-config.update("jax_platform_name","cpu")
-
-
-
-mesh = jax.make_mesh((no_cpu,1), ('x', 'y'))
-mesh0 = jax.make_mesh((no_cpu,), ('x'))
+mesh = jax.make_mesh((no_cpu,1), ('x', 'y'), axis_types=(jax.sharding.AxisType.Auto, jax.sharding.AxisType.Auto))
+mesh0 = jax.make_mesh((no_cpu,), ('x'), axis_types=(jax.sharding.AxisType.Auto,))
 sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x', 'y'))
 sharding0 = jax.sharding.NamedSharding(mesh0, jax.sharding.PartitionSpec('x'))
-#sharding0 = PositionalSharding(mesh_utils.create_device_mesh((no_cpu,)))
 devices = jax.devices()
 
 #This is a class that deals with the pdb files and all construction of position arrays
@@ -569,8 +599,7 @@ class PDB_helper:
 			normal = normals_sum[:3]/normals_sum[3]
 			normal = normal/jnp.linalg.norm(normal)
 			return normal
-		shard_nns = jax.device_put(jnp.arange(self.poses.shape[0]),sharding0)
-		normals = normal_fun_2(shard_nns)
+		normals = normal_fun_2(jnp.arange(self.poses.shape[0]))
 		
 		self.normals = jnp.array(jax.device_get(normals))#jax.device_put(normals)#jax.device_put_sharded([normals],[devices[0]])
 
@@ -583,10 +612,8 @@ class PDB_helper:
 			is_surf = self.get_surface_v3(jnp.array(self.poses),jnp.array(bpoints),mrad).block_until_ready()
 			self.surface = self.surface.at[:,0].set(jnp.array(is_surf))
 		else:
-			shard_points = jax.device_put(self.poses,sharding)
-			shard_surface = jax.device_put(self.surface,sharding)
-			shard_surface = self.get_surface_v2(shard_points,shard_surface,self.def_surf).block_until_ready()
-			self.surface = jnp.array(jax.device_get(shard_surface))
+			shard_surface = self.get_surface_v2(self.poses,self.surface,self.def_surf).block_until_ready()
+			self.surface = jnp.array(shard_surface)
 		
 		surface_number = jnp.sum(self.surface,dtype = "int")
 		#A new array is created containg only surface positions
@@ -614,8 +641,7 @@ class PDB_helper:
 			return ball_arr
 		
 		
-		shard_nn = jax.device_put(jnp.arange(self.poses.shape[0]),sharding0)
-		spheres = sphere_fun_3(shard_nn)
+		spheres = sphere_fun_3(jnp.arange(self.poses.shape[0]))
 		
 		self.poses = self.poses[:pos_num]
 		self.surface = self.surface[:pos_num,0]
@@ -2697,7 +2723,13 @@ class MemBrain:
 		
 		
 	#Builds a CG system using insane
-	def build_oriented(self,orient_dir,build_args):
+	def build_oriented(self,orient_dir,build_args,insane_path=""):
+		resolved_insane = insane_path.strip() or PATH_TO_INSANE.strip()
+		if not resolved_insane:
+			raise ValueError(
+				"Path to Insane4MemPrO is required when using -bd. "
+				"Supply it with -insane <path> or set the PATH_TO_INSANE environment variable."
+			)
 		mins = np.array(self.minima)
 		no_mins = (mins.shape[0]//5)
 		min_poses = mins[:no_mins]
@@ -2720,7 +2752,7 @@ class MemBrain:
 			curv_str = " -curv "+str(10*np.abs(min_curvs[i]))+",0.1,"+str(np.sign(min_curvs[i]-1e-9))
 			print("Building rank "+str(i+1)+" with Insane4MemPrO:")
 			cg_sys_dir = rank_dir+"CG_System_rank_"+str(i+1)+"/"
-			run_str = "python "+PATH_TO_INSANE+" "+build_args.strip()+" -o "+cg_sys_dir+"CG-system.gro -p "+cg_sys_dir+"topol.top -f "+cg_sys_dir+"protein-cg.pdb "+"-x "+str(x_range)+" -y "+str(y_range)+" -z "+str(z_range)+curv_str
+			run_str = "python "+resolved_insane+" "+build_args.strip()+" -o "+cg_sys_dir+"CG-system.gro -p "+cg_sys_dir+"topol.top -f "+cg_sys_dir+"protein-cg.pdb "+"-x "+str(x_range)+" -y "+str(y_range)+" -z "+str(z_range)+curv_str
 			if(zdist > 1e-6):
 				run_str += " -ps "+str(zdist)
 			if(self.pg_layer_pred):
@@ -3621,3 +3653,391 @@ def add_AtomToBeads(fn):
 	return bead_names,bead_contents
 
 
+
+
+def main():
+    import importlib.resources
+    try:
+        # Installed as a package
+        _pkg_files = importlib.resources.files("mempro")
+        _default_itp    = str(_pkg_files.joinpath("martini_v3.itp"))
+        _default_insane = str(_pkg_files.joinpath("Insane4MemPrO.py"))
+    except ModuleNotFoundError:
+        # Running directly from source (e.g. python MemPrO.py)
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _default_itp    = os.path.join(_here, "martini_v3.itp")
+        _default_insane = os.path.join(_here, "Insane4MemPrO.py")
+    warnings.filterwarnings('ignore')
+    import logging
+
+    #Reading command line args
+    parser = argparse.ArgumentParser(prog="MemPrO",description="Orients a protein in a membrane. Currently only for E-coli membranes, but this will change in future updates. Currently flags -c -c_ni -ps -fc are WIP, these can still be used at the your own peril.")
+    parser.add_argument("-f", "--file_name",help = "Input file name (.pdb)")
+    parser.add_argument("-o","--output",help="Name of the output directory (Default: Orient)")
+    parser.add_argument("-ni","--iters",help="Number of minimisation iterations (Default: 150)")
+    parser.set_defaults(iters=150)
+    parser.add_argument("-ng","--grid_size",help="Number of starting configurations (Default: 20)")
+    parser.set_defaults(grid_size=36)
+    parser.add_argument("-dm","--dual_membrane",action="store_true",help="Toggle dual membrane orientation")
+    parser.set_defaults(dual_membrane=False)
+    parser.add_argument("-pg","--predict_pg_layer",action="store_true",help="Toggle peptidogylcan call wall prediction")
+    parser.set_defaults(predict_pg_layer=False)
+    parser.add_argument("-pg_guess","--pg_layer_guess",help="Inputs a guess for the position of the PG layer. This is usually based off of standard PG layer positions in specific bacteria.")
+    parser.set_defaults(pg_layer_guess=-1)
+    parser.add_argument("-pr","--peripheral",action="store_true",help="Toggle peripheral (or close to) orientation")
+    parser.set_defaults(peripheral=False)
+    parser.add_argument("-w","--use_weights",action="store_true",help="Toggle use of b-factors to weight orientation")
+    parser.set_defaults(use_weights=False)
+    parser.add_argument("-c","--curvature",action="store_true",help="Toggle curvature minimisation.")
+    parser.set_defaults(curvature=False)
+    parser.add_argument("-flip","--flip",action="store_true",help="Flips protein in the Z-axis after orientation.")
+    parser.set_defaults(flip=False)
+    parser.add_argument("-itp","--itp_file",help="Path to force field itp (Default: martini_v3.itp in script directory)")
+    parser.set_defaults(itp_file=_default_itp)
+    parser.add_argument("-bd","--build_system",help = "Build a MD ready CG-system for ranks < n (Default: n=0)")
+    parser.set_defaults(build_system=0)
+    parser.add_argument("-bd_args","--build_arguments",help="Arguments to pass to insane when building system")
+    parser.set_defaults(build_arguments="")
+    parser.add_argument("-insane","--insane_path",help="Path to Insane4MemPrO.py (Default: Insane4MemPrO.py in script directory)")
+    parser.set_defaults(insane_path=_default_insane)
+    parser.add_argument("-nc","--num_cpus",help="Number of CPU/GPU devices for JAX parallelism (Default: all available)",type=int)
+    parser.set_defaults(num_cpus=None)
+    parser.add_argument("-p","--platform",help="Compute platform: cpu or gpu (Default: cpu)",choices=["cpu","gpu"])
+    parser.set_defaults(platform="cpu")
+    parser.add_argument("-ch","--charge",help="Partial charge of (inner) membrane (Deafult: 0)")
+    parser.set_defaults(charge=0)
+    parser.add_argument("-ch_o","--charge_outer",help="Partial charge of outer membrane (Deafult: 0)")
+    parser.set_defaults(charge_outer=0)
+    parser.add_argument("-mt","--membrane_thickness",help="Initial thickness of (inner) membrane in Angstroms (Deafult: 28)")
+    parser.set_defaults(membrane_thickness=28.0)
+    parser.add_argument("-mt_o","--outer_membrane_thickness",help="Initial thickness of outer membrane in Angstroms (Deafult: 24)")
+    parser.set_defaults(outer_membrane_thickness=24.0)
+    parser.add_argument("-res","--additional_residues",help="Comma seperate list of additional residues in input files (eg: POPG) Note the only ATOM entries will be read, all HETATM entries will be ignored.")
+    parser.set_defaults(additional_residues="")
+    parser.add_argument("-res_itp","--additional_residues_itp_file",help="Path to the itp file describing all additional residues, and bead types associated to beads in the residue. A CG representation is required, for atomisitic inputs an additional file is required which describes the beading.")
+    parser.set_defaults(additional_residues_itp_file="")
+    parser.add_argument("-res_cg","--residue_cg_file",help="Folder that contains a files of name RES.pdb describing the beading for each additional RES - see CG2AT github for examples")
+    parser.set_defaults(residue_cg_file="")
+    parser.add_argument("-mt_opt","--membrane_thickness_optimisation",action="store_true",help="Toggle membrane thickness optimisation. Cannot use with -c")
+    parser.set_defaults(membrane_thickness_optimisation=False)
+    parser.add_argument("-tm","--transmembrane_residues",help="This indicates if there are residues known to be in the membrane. Input is formatted as a comma seperated list of inclusive-exclusive ranges e.g. -tm 1-40,50-60.")
+    parser.set_defaults(transmembrane_residues = "")
+    parser.add_argument("-wb","--write_bfactors",action="store_true",help="Toggle writing potential of each bead on the surface to the bfactors of the ouput pdb. Currently not implemented with -c.")
+    parser.set_defaults(write_bfactors=False)
+    parser.add_argument("-rank","--rank",help="The method by which to rank the minima. auto will rank using a calculated value intended to give the best result. Hits (h) will rank by percentage hits. Potential (p) will rank by lowest potential. Default (auto)")
+    parser.set_defaults(rank="auto")
+    args = parser.parse_args()
+
+    fliper = 1
+    if args.flip:
+    	fliper = -1
+
+
+    add_reses = args.additional_residues.split(",")
+    if(len(add_reses) > 0):
+    	if(len(add_reses[0]) > 0):
+    		print("Using additional residues:",", ".join(add_reses))
+    		if args.additional_residues_itp_file == "":
+    			print("ERROR: Additional residue itp is required if using additional residues.")
+    			exit()
+    		if args.residue_cg_file == "":
+    			print("WARNING: You have not added beading information for the added residues, this will cause an error if orienting a atomisitic input.")
+
+
+    #Error checking user inputs
+    try:
+    	grid_size = int(args.grid_size)
+    except:
+    	print("ERROR: Could not read value of -ng. Must be an integer > 3.")
+    	exit()
+    if(grid_size < 4):
+    	print("ERROR: Could not read value of -ng. Must be an integer > 3.")
+    	exit()
+
+
+    if args.rank not in ["h","p","auto"]:
+    	print("ERROR: -rank must be either \"auto\", \"h\" or \"p\".")
+    	exit()
+
+    ranker = args.rank
+    if args.rank == "auto":
+    	ranker = "p"
+
+
+    mem_data = [0,0,0,0]
+    try:
+    	mem_data[0] = -float(args.charge)
+    except:
+    	print("ERROR: Could not read value of -ch. Must be a float.")
+    	exit()
+
+
+    try:
+    	mem_data[1] = -float(args.charge_outer)
+    except:
+    	print("ERROR: Could not read value of -ch_o. Must be a float.")
+    	exit()
+
+    try:
+    	mem_data[2] = float(args.membrane_thickness)
+    except:
+    	print("ERROR: Could not read value of -mt. Must be a float > 0.")
+    	exit()
+    if(mem_data[2] <= 0):
+    	print("ERROR: Could not read value of -mt. Must be a float > 0.")
+    	exit()
+
+    pgl_guess = 0
+
+    try:
+    	pgl_guess = float(args.pg_layer_guess)
+    except:
+    	print("ERROR: Could not read value of -pg_guess. Must be a float")
+    	exit()
+
+
+
+    try:
+    	mem_data[3] = float(args.outer_membrane_thickness)
+    except:
+    	print("ERROR: Could not read value of -mt_o. Must be a float > 0.")
+    	exit()
+    if(mem_data[3] <= 0):
+    	print("ERROR: Could not read value of -mt_o. Must be a float > 0.")
+    	exit()
+
+
+    try:
+    	iters = int(args.iters)
+    except:
+    	print("ERROR: Could not read value of -ni. Must be an integer >= 0.")
+    	exit()
+    if(iters < 0):
+    	print("ERROR: Could not read value of -ni. Must be an integer >= 0.")
+    	exit()
+
+    try:
+    	build_system = int(args.build_system)
+    except:
+    	print("ERROR: Could not read value of -bd. Must be an integer > -1.")
+    	exit()
+    if(build_system < 0):
+    	print("ERROR: Could not read value of -bd. Must be an integer > -1.")
+    	exit()
+
+    if(args.curvature):
+    	if(args.membrane_thickness_optimisation):
+    		print("ERROR: Cannot optimise membrane thickness and run curvature minimisation.")
+    		exit()
+    	if(args.dual_membrane):
+    		print("Error: Cannot run curvature minimisation with -dm.")
+    		exit()
+
+    if(args.predict_pg_layer):
+    	if(not args.dual_membrane):
+    		print("Error: Cannot predict PG cell wall if not using -dm")
+    		exit()
+
+    if(build_system > 0):
+    	if(args.build_arguments == ""):
+    		print("ERROR: -bd_args must be supplied when using -bd.")
+    		exit()
+    	if(args.membrane_thickness_optimisation):
+    		print("WARNING: Cannot build with optimised membrane thickness.")
+
+
+
+    list_ranges = args.transmembrane_residues.split(",")
+    ranges = []
+    if(list_ranges != [""]):
+    	for i in list_ranges:
+    		rang = i.strip()
+    		rang = rang.split("-")
+    		if(len(rang) != 2):
+    			print("ERROR: Could not read value of -tm. Must be a comma seperated list of ranges e.g. 10-40,50-60.")
+    			exit()
+    		try:
+    			ranges.append([int(rang[0]),int(rang[1])])
+    		except:
+    			print("ERROR: Could not read value of -tm. All values must be an integer > 0.")
+    			exit()
+    		if(ranges[-1][0] <= 0 or ranges[-1][1] <= 0):
+    			print("ERROR: Could not read value of -tm. All values must be an integer > 0.")
+    			exit()
+    		if(ranges[-1][0] > ranges[-1][1]):
+    			print("ERROR: Could not read value of -tm. For a range x-y, x < y must be true.")
+    			exit()
+    	ranges = np.array(ranges)
+    	if(args.use_weights):
+    		print("ERROR: Cannot use -tm with -w.")
+    		exit()
+    else:
+    	ranges = np.array([])
+
+
+
+    fn = args.file_name
+
+    if(not os.path.exists(fn)):
+    	print("ERROR: Cannot find file: "+fn)
+    	exit()
+
+    orient_dir = args.output
+
+    #Setting Martini itp file
+    martini_file = str(args.itp_file.strip())
+
+    if(not os.path.exists(martini_file)):
+    	print("ERROR: Cannot find file: "+martini_file)
+    	exit()
+
+
+    #Creating folders to hold data
+    if(orient_dir == None):
+    	if(not os.path.exists("Orient/")):
+    		os.mkdir("Orient/")
+    	orient_dir = "Orient/"
+    else:
+    	if orient_dir[-1] != "/":
+    	    orient_dir+= "/"
+    	if(not os.path.exists(orient_dir)):
+    		os.mkdir(orient_dir)
+
+    timer = time.time()
+    if(len(add_reses) > 0):
+    	if(len(add_reses[0]) > 0):
+    		for i in add_reses:
+    			add_Reses(i,args.additional_residues_itp_file)
+    			if len(args.residue_cg_file) > 0 :
+    				add_AtomToBeads(args.residue_cg_file.lstrip("/")+"/"+i+".pdb")
+
+    #Creating a helper class that deals with loading the PDB files
+    PDB_helper_test = PDB_helper(fn,args.use_weights,build_system,ranges,False,False)
+
+    #Loading PDB
+    _ = PDB_helper_test.load_pdb()
+
+
+    #Getting surface
+
+    print("Getting surface residues...")
+    jax.block_until_ready(PDB_helper_test.get_surface())
+    print("Done")
+
+
+    #We have to recenter when using -tm to allow for smoother rotations durning the minimisation steps
+    PDB_helper_test.recenter_bvals()
+
+
+    #For periplasmic spanning proteins we start with the longest dimension in the Z-axis
+    if(not args.dual_membrane):
+    	jax.block_until_ready(PDB_helper_test.starting_orientation_v2())
+
+    ### FOR TESTING PURPOSES ONLY ##########################################
+    if(not args.dual_membrane):
+    	PDB_helper_test.test_start([0,np.random.random()*np.pi,np.random.random()*np.pi/2])
+    ########################################################################
+
+    #Here we create the potential field from a martini file. In furture custom membrane definitions may be used
+    int_data = get_mem_def(martini_file)
+
+    #We extract the data from the PDB helper class and pass it to the main orientation class
+    data = PDB_helper_test.get_data()
+
+    #Creating MemBrain class
+    Mem_test = MemBrain(data,int_data,args.peripheral,0,args.predict_pg_layer,mem_data,args.curvature,args.dual_membrane,args.write_bfactors,ranker)
+
+    #Testing stuff only
+    """
+    xs =jnp.linspace(-40,40,500)
+    ys = jnp.linspace(-40,40,500)
+    img = jnp.zeros((500,500))
+
+    def lj(x,sig,ep):
+    	return 4*ep*((jnp.power(sig,12)/jnp.power(x,12))-(jnp.power(sig,6)/jnp.power(x,6)))
+    def lp1(img, ind1):
+    	def lp2(img, ind2):
+    		img = img.at[ind1,ind2].set(Mem_test.smjh(xs[ind1],2,11,Mem_test.mem_structure))
+    		#img = img.at[ind1,ind2].set(lj(xs[ind1],3.87,10))
+    		return img, ind2
+    	img,_=jax.lax.scan(lp2,img,jnp.arange(500))
+    	return img,ind1
+    img,_=jax.lax.scan(lp1,img,jnp.arange(500))
+    plt.imshow(img,cmap = mpl.colormaps["seismic"])
+    #plt.axvline(4.35,color="green")
+    #plt.plot(xs,img[:,0])
+    plt.show()
+    exit()
+    """
+    #End of testing stuff
+
+    #Setting up a sphereical grid for local minima calculations
+    angs = create_sph_grid(grid_size)
+
+    #Getting a starting insertion depth
+    print("Getting initial insertion depth...")
+    if(args.dual_membrane):
+    	zdist,zs = Mem_test.calc_start_for_ps_imp()
+    	start_z = jnp.array([[0,0,zs]])
+    else:
+    	start_z = Mem_test.get_starts(angs)#Mem_test.get_hydro_core_v3().block_until_ready()
+    	zdist = 0
+
+
+    print("Done")
+    print("Starting minimisation...")
+
+    #Minimising on the grid
+
+    Mem_test.minimise_on_grid(grid_size,start_z,zdist,angs,iters)
+    print("Done")
+    print("Collecting minima information...")
+
+    #Collating minima information
+
+    cols,pot_grid = Mem_test.collect_minima_info(grid_size)
+    print("Done")
+
+    print("Approximating minima depth...")
+    Mem_test.approx_minima_depth_all(0.8,orient_dir)
+    print("Done")
+
+    if(not args.dual_membrane and args.rank == "auto"):
+    	print("Re-ranking minima...")
+    	Mem_test.re_rank_minima(orient_dir)
+    	print("Done")
+
+
+    if(args.membrane_thickness_optimisation):
+    	print("Optimising membrane thickness...")
+    	Mem_test.optimise_memt_all()
+    	print("Done")
+
+
+    if(args.predict_pg_layer):
+    	print("Calculating PG cell wall position...")
+    	Mem_test.get_all_pg_pos(orient_dir,pgl_guess)
+    	print("Done")
+
+
+    print("Writing data...")
+    #Writing to a file
+
+    Mem_test.write_oriented(fn,orient_dir," ".join(sys.argv),fliper)
+    print("Done")
+
+    if(build_system >0):
+    	print("Building system...")
+    	Mem_test.build_oriented(orient_dir,args.build_arguments,args.insane_path)
+    	print("Done")
+
+    #Displaying the local minima graphs
+
+    print("Making graphs...")
+    create_graphs(orient_dir,cols,pot_grid,angs,int(np.floor((np.sqrt(grid_size)*0.8))))
+    print("Done")
+
+    print("Total: "+str(np.round(time.time()-timer,3))+" s")
+
+if __name__ == "__main__":
+    main()

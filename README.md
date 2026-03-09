@@ -4,295 +4,319 @@ Membrane Protein Orientation in Lipid Bilayers. The paper associated with this c
 Code and parameters from the following were used to help write this code:
 
 **Insane:**
-Tsjerk A. Wassenaar et al. “Computational lipidomics with insane: A versatile tool for generating custom membranes for molecular simulations”. In: Journal of Chemical Theory and Computation 11 (5 May 2015), pp. 2144–2155. issn: 15499626. [GitHub](https://github.com/Tsjerk/Insane) and [paper](https://pubs.acs.org/doi/abs/10.1021/acs.jctc.5b00209) 
+Tsjerk A. Wassenaar et al. "Computational lipidomics with insane: A versatile tool for generating custom membranes for molecular simulations". In: Journal of Chemical Theory and Computation 11 (5 May 2015), pp. 2144–2155. issn: 15499626. [GitHub](https://github.com/Tsjerk/Insane) and [paper](https://pubs.acs.org/doi/abs/10.1021/acs.jctc.5b00209)
 
-**Matini forcefield:**
-Siewert J ; Marrink et al. “The MARTINI force field The MARTINI Force Field: Coarse Grained Model for Biomolecular Simulations”. In: (2007). [Paper](https://pubs.acs.org/doi/10.1021/jp071097f)
+**Martini forcefield:**
+Siewert J. Marrink et al. "The MARTINI Force Field: Coarse Grained Model for Biomolecular Simulations". In: (2007). [Paper](https://pubs.acs.org/doi/10.1021/jp071097f)
 
 **Peptidoglycan parameters:**
-Rakesh Vaiwala et al. “Developing a Coarse-Grained Model for Bacterial Cell Walls: Evaluating Mechanical Properties and Free Energy Barriers”. In: Journal of Chemical Theory and Computation 16 (8 Aug. 2020), pp. 5369–5384. issn: 15499626. [Paper](https://pubs.acs.org/doi/abs/10.1021/acs.jctc.0c00539)
+Rakesh Vaiwala et al. "Developing a Coarse-Grained Model for Bacterial Cell Walls: Evaluating Mechanical Properties and Free Energy Barriers". In: Journal of Chemical Theory and Computation 16 (8 Aug. 2020), pp. 5369–5384. issn: 15499626. [Paper](https://pubs.acs.org/doi/abs/10.1021/acs.jctc.0c00539)
 
 ## Installation
-To install MemPrO run the following:
->pip install mempro
 
-Otherwise, clone the GitHub repository. Python 3.11.5 or better is required, and the following packages need to be installed
-* Jax 0.4.30 (As JAX is in constant development at the time of writing do not use any other versions, as MemPrO may no longer work as intended)
->pip install jax\["cpu"\]>=0.4.30,<0.6.1
-* Matplotlib 3.8.4
->pip install matplotlib>=3.8.4
+### pip (recommended)
 
-A Martini3 forcefield is also required, this can be downloaded from [here](https://cgmartini.nl/docs/downloads/force-field-parameters/martini3/particle-definitions.html) 
+```
+pip install mempro
+```
 
-Before running MemPrO some environment variables must be set, for Linux users the following lines can be run.
+### From source
 
->export NUM_CPU=N
+Clone the GitHub repository. Python 3.11 or later is required, along with the following packages:
 
->export PATH_TO_INSANE=PATH/TO/Insane4MemPrO.py
+* JAX 0.6.0 or later (CPU):
+```
+pip install "jax[cpu]>=0.6.0"
+```
+* JAX with CUDA support (GPU, optional):
+```
+pip install "jax[cuda]>=0.6.0"
+```
+* Matplotlib 3.8.4 or later:
+```
+pip install "matplotlib>=3.8.4"
+```
 
->export PATH_TO_MARTINI=PATH/TO/martini3.itp
+A Martini 3 forcefield file is also required and can be downloaded from [here](https://cgmartini.nl/docs/downloads/force-field-parameters/martini3/particle-definitions.html). When running from source, place the `.itp` file in the same directory as `MemPrO.py`, or supply its path using the `-itp` flag.
 
-Where N is replaced by the number of CPU you wish to use and martini3.itp is the name of the martini3 itp file you are using.
+MemPrO is also accessible on Google Colab via the link [ADD LINK]. The Colab will contain instructions for use. (Currently the Colab is WIP and this will be updated.)
 
-MemPrO is also accessible on Google Colab via the link [ADD LINK]. The Colab will contain instructions for use. (Currently the Colab in WIP and this will be updated)
+## Running MemPrO
 
+### From source
 
+```
+python PATH/TO/MemPrO.py -f input_file.pdb
+```
+
+### Installed via pip
+
+```
+mempro -f input_file.pdb
+```
+
+No environment variables are required. By default MemPrO will use all available CPU cores and look for `Insane4MemPrO.py` and `martini_v3.itp` in the same directory as the script (or the installed package directory). These paths can be overridden with the `-insane` and `-itp` flags if needed.
 
 ## Outputs
 
 MemPrO is intended to be run on PDB files, and will output the following files:
 
-  * orientation.txt : This is a file that contains general information about all of the final minima. In general rank 1 is the best orientation, however there are cases where this is not true. orientation.txt can then be used to determine the best orientation.
-  * local_minima_orientation.png : This is a representation of how spread out the local minima are. The more white the more confidence can be placed in the rank 1. This is only true in general and there are some cases where this can be safely ignored.
+* **orientation.txt** — Contains general information about all of the final minima. In general rank 1 is the best orientation, however there are cases where this is not true. `orientation.txt` can then be used to determine the best orientation.
 
-  * local_minima_potential.png : This is a representation of the potential of the final configuration from a given starting configuration. This complements local_minima_orientation.png but in general does not provide much additional information.
+* **local_minima_orientation.png** — A representation of how spread out the local minima are. The more white the image, the more confidence can be placed in rank 1. This is only true in general and there are some cases where this can be safely ignored.
 
-  * Rank_{n}: This is a folder that contains all the relevant information for a particular rank. It contains the following files/folders:
-    * oriented_rank_{n}.pdb : This is the nth ranked configuration. It will contain the protein (atomistic or coarse grain depending on the input) and a dummy membrane. The rank is based on number of hits (or potential, see flags) .
+* **local_minima_potential.png** — A representation of the potential of the final configuration from a given starting configuration. This complements `local_minima_orientation.png` but in general does not provide much additional information.
 
-    * info_rank_{n}.txt : This contains some information about the orientation.
-
-    * CG_System_rank_{n} : This folder contains a CG-system built using Insane4MemPrO and the rank N config. It also contains a topology file. This is outputted when using flags -bg and -bg_args, see the section of flags for syntax.
-	
-    * PG_potential_curve.png : This is the potential curve for the position of the PG cell wall. This is only outputted when you use flag -pg.
-   
-    * cross-section_area_curve.png: This shows the cross-sectional area of the segment of the protein that passes through the PG layer. This is only outputted with flag -pg.
-	
-    * Z_potential_curve.png : This is a graph of potential against Z position of the final orientation. This can give an idea of the kind of minima.
-	
-    * curv_potential_curve.png : This is a graph of potential against global curvature of membrane with the final orientation. This can indicate of curvature minimisation should be used.
-	 
-   
-MemPrO will also output information about the progress of the orientation to the command line. Additionally MemPrO will output WARNINGs generated by tensorflow, this is due to the version of JAX being used and will hopefully in future be removed. These warnings can in general safely be ignored.
+* **Rank_{n}/** — A folder containing all relevant information for a particular rank:
+  * `oriented_rank_{n}.pdb` — The nth ranked configuration. Contains the protein (atomistic or coarse grain depending on the input) and a dummy membrane. The rank is based on number of hits (or potential, see `-rank` flag).
+  * `info_rank_{n}.txt` — Some information about the orientation.
+  * `CG_System_rank_{n}/` — A CG system built using Insane4MemPrO for the rank N configuration, including a topology file. Only produced when using `-bd` and `-bd_args`.
+  * `PG_potential_curve.png` — The potential curve for the position of the PG cell wall. Only produced with `-pg`.
+  * `cross-section_area_curve.png` — The cross-sectional area of the segment of the protein passing through the PG layer. Only produced with `-pg`.
+  * `Z_potential_curve.png` — Potential against Z position of the final orientation. Gives an idea of the nature of the minima.
+  * `curv_potential_curve.png` — Potential against global membrane curvature for the final orientation. Can indicate whether curvature minimisation should be used.
 
 ## Flags
-MemPro will takes the following flags as input:
 
+**-h, --help** — Displays a help message with all possible flags.
 
--h, --help : This will display a help message with all possible flags and some information on their use.
+**-f, --file_name** — Input PDB file for the protein to orient. The protein can be either atomistic or coarse grained; the code detects which automatically and ignores unknown atom/bead types. It is recommended that the PDB file has no missing atoms, as this can reduce orientation quality.
 
--f, --file_name : This is the name of the input file for the protein that you wish to orient. It must be a .pdb. In future support for .gro files may be added. The protein can be either atomistic or coarse grained. The code should detect which it is and ignore unknown atom/bead types, however in the case of an error please let me know and send me the file which caused it. It is recommended that the PDB files had no missing atoms as this can cause the orientation to be of lower quality.
+**-o, --output** — Name of the output directory. Defaults to `Orient/` in the current working directory.
 
--o, --output : This is the name of the ouput directory. The code will default to a folder called Orient in the directory where the code is run. The syntax for this flag is -o "Output_dir/". Note that a backslash is required.
+**-ni, --iters** — Maximum number of minimisation iterations. The default of 150 is sufficient in most cases. Reducing this value increases speed; increasing it can sometimes improve results on difficult systems.
 
--ni, --iters : This indicates the maximum number of minimisation iteration the code will carry out. The default value of 150 should be enough in most cases. For some systems a smaller value can also work, so if greater speed is needed this can be reduced. Equally if the final output does not seem satisfactory then increasing this value can sometimes fix this, or at least provide information.
+**-ng, --grid_size** — Number of initial starting configurations. Defaults to 36. For best efficiency this should be a multiple of the number of CPUs being used. More starting configurations sample the space of minima better, but there are diminishing returns and generally no more than 40 are needed.
 
--ng, --grid_size : This is the number of initial starting configurations from which to minimise. It defaults to 20. For maximum efficiency this should be a multiple of the number of CPUs being used. Having a greater number of starting configurations will sample the space of minima better, however there is diminishing returns and generally no more than 40 will be needed.
+**-nc, --num_cpus** — Number of CPU cores (or GPU devices) to use. Defaults to all available cores. For best performance with `-ng`, set `-nc` to a value that divides `-ng` evenly.
 
--rank, --rank : This can be either "h", "p" or "auto". "h" ranks the minima by % hits, "p" ranks by potential and "auto" ranks by a value depending on approximate minima depth and potential.
+**-p, --platform** — Compute platform: `cpu` (default) or `gpu`. Use `gpu` only with `jax[cuda]` installed.
 
--dm, --dual_membrane : This toggles dual membrane minimisations. This allows the code to split the membrane into a inner and outer membrane and minimise the distance between them. Only use this is you know your protein will span the periplasm or is a gap junction etc.
+**-rank, --rank** — Ranking method for minima: `h` ranks by percentage hits, `p` ranks by potential, `auto` (default) ranks by a value calculated from approximate minima depth and potential.
 
--ch, --charge : This value corresponds to the partial charge of the (inner) membrane. For -ch and -ch_o below the value corresponds to the average charge on a lipid divided by the average area per lipid. This will give a average charge across a sheet that will represent the bilayer. The value for an E-coli membrane is around -0.008. In general best preformance is obtained by using a charge of 0.
+**-dm, --dual_membrane** — Toggles dual membrane minimisation. Splits the membrane into an inner and outer membrane and minimises the distance between them. Only use this if your protein spans the periplasm or is a gap junction etc.
 
--ch_o, --charge_outer : This is the charge for the outer membrane only. This will do nothing without -dm.
+**-ch, --charge** — Partial charge of the (inner) membrane. The value corresponds to the average charge on a lipid divided by the average area per lipid, representing the average charge across the bilayer sheet. For an E. coli inner membrane this is around -0.008. Default is 0, which gives the best performance in most cases.
 
--mt, --membrane_thickness : This is the initial thickness of the (inner) membrane.
+**-ch_o, --charge_outer** — Charge for the outer membrane only. Has no effect without `-dm`.
 
--mt_o, --outer_membrane_thickness : This is the initial thickness of the outer membrane. This will do nothing without -dm.
+**-mt, --membrane_thickness** — Initial thickness of the (inner) membrane in Angstroms. Default is 28.
 
--mt_opt, --membrane_thickness_optimisation : This toggles membrane thickness optimisation. This cannot be used with curvature minimisation (currently).
+**-mt_o, --outer_membrane_thickness** — Initial thickness of the outer membrane in Angstroms. Has no effect without `-dm`. Default is 24.
 
--tm, --transmembrane_residues : This indicates which residues are expected to be transmembrane. THe format for this is a comma separated list of ranges e.g. 10-40,50-60. This is intended only for situations where the transmembrane region is known and MemPrO is consistently orienting incorrectly.
+**-mt_opt, --membrane_thickness_optimisation** — Toggles membrane thickness optimisation. Cannot be used with `-c`.
 
--pg --predict_pg_layer : This toggles PG cell wall prediction for dual membrane minimisations. This will output a dummy PG layer where the lowest potential is found and two graphs. The graphs show the potential associated with the placement of the PG layer at a particular Z and the cross-sectional area of the segment of protein going through the PG layer. Due to the nature of the PG layer the lowest potential in not necessarily the biologically correct placement, it is therefore recommended to use these graphs for further information.
+**-tm, --transmembrane_residues** — Indicates which residues are expected to be transmembrane. Format is a comma-separated list of inclusive-exclusive ranges e.g. `10-40,50-60`. Intended only for situations where the transmembrane region is known and MemPrO is consistently orienting incorrectly. Cannot be used with `-w`.
 
--pr, --peripheral : This tells the code to use an alternative method for determining initial insertion depth. The usual method is to place a weighted mean of the hydrophobic residues at the centre of the membrane, this clearly does not work for a peripheral membrane protein or for a protein that does not fully span the membrane. The alternative method scans all possible insertion depths within a range and selects the lowest. This does not work with -dm.
+**-pg, --predict_pg_layer** — Toggles PG cell wall prediction for dual membrane minimisations. Outputs a dummy PG layer at the lowest potential position and two diagnostic graphs. Due to the nature of the PG layer the lowest potential is not necessarily the biologically correct placement; it is recommended to use the graphs for further interpretation. Requires `-dm`.
 
--w, --use_weights : This toggles the use of b-factors to weight the minimisation. This is useful if part of your protein is particularly flexible or poorly predicted by Alphafold. Do not use this if all your b-factors are 0 as currently this will just break with not indication of why (This will be changed soon).
+**-pg_guess, --pg_layer_guess** — An initial guess for the PG layer position, typically based on standard PG layer positions in a specific bacterium.
 
--wb, --write_bfactors : This toggles writing of individual bead potentials into b factors. Not currently working with -c.
+**-pr, --peripheral** — Use an alternative method for determining initial insertion depth. The usual method places the weighted mean of the hydrophobic residues at the membrane centre, which does not work well for peripheral membrane proteins. The alternative method scans all possible insertion depths within a range. Does not work with `-dm`.
 
--c, --curvature : This toggles global curvature minimisation. This is currently not compatible with -dm. 
+**-w, --use_weights** — Toggles use of b-factors to weight the minimisation. Useful if part of your protein is particularly flexible or poorly predicted by AlphaFold. Do not use this if all b-factors are 0. Cannot be used with `-tm`.
 
--flip, --flip : This flips the protein in the Z-axis on output.
+**-wb, --write_bfactors** — Writes individual bead potentials to the b-factors of the output PDB. Useful for diagnosing orientation problems. Not currently compatible with `-c`.
 
--itp, --itp_file : The code makes heavy use of the Martini3 parameters. The path to a Martini 3 itp file should go here. The default location is read from the environment variable PATH_TO_MARTINI.
+**-c, --curvature** — Toggles global curvature minimisation. Not currently compatible with `-dm` or `-mt_opt`.
 
--bd, --build_system : This should be a number that indicates how many of the final configurations should be build using Insane4MemPrO. This will currently only work if your input file is coarse grain.  
+**-flip, --flip** — Flips the protein in the Z-axis on output.
 
--bd_args, --build_arguments : These are the arguments to pass to Insane4MemPrO. This mostly includes lipid composition, solvent type etc.
+**-itp, --itp_file** — Path to a Martini 3 `.itp` file. Defaults to `martini_v3.itp` in the same directory as `MemPrO.py` (or the installed package directory).
 
--res, --additional_residues : A comma seperated list of additional residues present in the input file (eg POPE,POPG)
+**-insane, --insane_path** — Path to `Insane4MemPrO.py`. Defaults to the same directory as `MemPrO.py` (or the installed package directory). Only required when using `-bd`.
 
--res_itp, --additional_residues_itp_file : An itp file containing descriptions of each additional residue added.
+**-bd, --build_system** — Number of final ranked configurations to build as CG MD-ready systems using Insane4MemPrO. Currently only works with coarse grain input files.
 
--res_cg, --residue_cg_file : A folder containing files called RES.pdb where RES is the name of each additional residue added. RES.pdb should contain coarse graining information, example can be found on the GitHub repo for [CG2AT](https://github.com/owenvickery/cg2at/tree/master/database/fragments/martini_3-0_slipids/non_protein). This is only required for atomistic inputs with additional residues.
+**-bd_args, --build_arguments** — Arguments to pass to Insane4MemPrO, primarily lipid composition, solvent type etc. Required when using `-bd`.
+
+**-res, --additional_residues** — Comma-separated list of additional residues present in the input file (e.g. `POPE,POPG`).
+
+**-res_itp, --additional_residues_itp_file** — An `.itp` file describing each additional residue. Required when using `-res`.
+
+**-res_cg, --residue_cg_file** — A folder containing files named `RES.pdb` for each additional residue, providing coarse graining information. Examples can be found in the [CG2AT repository](https://github.com/owenvickery/cg2at/tree/master/database/fragments/martini_3-0_slipids/non_protein). Only required for atomistic inputs with additional residues.
 
 ## Examples
 
-Before running MemPrO some environment variables must be set, for Linux users the following lines can be run.
+The examples below use `python PATH/TO/MemPrO.py`; if installed via pip, replace this with `mempro`.
 
->export NUM_CPU=N
+Orient `input_file.pdb` on a grid of 40 starting configurations with 150 minimisation iterations:
 
->export PATH_TO_INSANE=PATH/TO/Insane4MemPrO.py
+```
+python PATH/TO/MemPrO.py -f input_file.pdb -o Output_dir/ -ng 40 -ni 150
+```
 
->export PATH_TO_MARTINI=PATH/TO/martini3.itp
+Orient with global curvature minimisation and write per-bead potentials to b-factors:
 
-Where N is replaced by the number of CPU you wish to use and martini3.itp is the name of the martini3 itp file you are using. For the examples below 20 CPUs were used. **If installing with pip than "MemPrO" and "Insane4MemPrO" can be used to run the code instead of the full path as shown in the example and tutorials below.**
+```
+python PATH/TO/MemPrO.py -f input_file.pdb -o Output_dir/ -ng 40 -ni 150 -c -wb
+```
 
-The below will orient input_file.pdb on a grid of 40 starting configurations with 150 minimisation iterations
+Orient with a dual membrane system, then build the top 2 ranked configurations as CG systems. The inner membrane contains POPE, POPG and CARD; the outer membrane contains LIPA:
 
->python PATH/TO/MemPrO_Script.py -f input_file.pdb -o "Output_dir/" -ng 40 -ni 150
+```
+python PATH/TO/MemPrO.py -f input_file.pdb -o Output_dir/ -ng 40 -ni 150 -dm -bd 2 -bd_args "-negi_c0 CL -posi_c0 NA -sol W -l POPE:7 -l POPG:2 -l CARD:1 -uo LIPA"
+```
 
+Orient using 8 CPU cores:
 
-The below will orient input_file.pdb on a grid of 40 starting configurations. It will preform global curvature minimisation alongside usual for 150 iterations. It will write the potential contributions of each bead to the b-factors of the final output.
+```
+python PATH/TO/MemPrO.py -f input_file.pdb -o Output_dir/ -nc 8
+```
 
->python PATH/TO/MemPrO_Script.py -f input_file.pdb -o "Output_dir/" -ng 40 -ni 150 -c -wb 
+Orient using a GPU:
 
+```
+python PATH/TO/MemPrO.py -f input_file.pdb -o Output_dir/ -p gpu
+```
 
-The below will orient input_file.pdb on a grid of 40 starting configurations with 150 minimisation iterations. It will be minimised with a double membrane system. Once minimised the code will build the top 2 ranks using Insane4MemPrO. The CG system built with insane will have asymmetric membranes, one with POPE,POPG and CARD the other with only LIPA. The CG system will have the same charge and salt concentration in each of the separate compartments created by the presence of two membranes.
-
->python PATH/TO/MemPrO_Script.py -f input_file.pdb -o "Output_dir/" -ng 40 -ni 150 -dm -bd 2 -bd_args "-negi_c0 CL -posi_c0 NA -sol W -l POPE:7 -l POPG:2 -l CARD:1 -uo LIPA"
-
-A more detailed set of tutorials is available [here](MemPrO_tutorials.md)
+A more detailed set of tutorials is available [here](MemPrO_tutorials.md).
 
 ## Insane4MemPrO
-MemPrO comes with Insane4MemPrO a CG system builder based on Insane. A link to the original Insane code can be found [here](https://github.com/Tsjerk/Insane). Insane4MemPrO allows the user to build more complex systems with up to 2 membranes, curvature, multiple proteins and more. When used with MemPrO directly via the -bd flag the system will be automatically built.
 
+MemPrO comes with Insane4MemPrO, a CG system builder based on [Insane](https://github.com/Tsjerk/Insane). Insane4MemPrO allows the user to build more complex systems with up to 2 membranes, curvature, multiple proteins and more. When used with MemPrO directly via the `-bd` flag the system is built automatically.
 
-### Flags:
+### Flags
 
-#### I/O related flags:
+#### I/O related flags
 
--f : (Optional) Input protein to build CG system around.
+**-f** — (Optional) Input protein to build a CG system around.
 
--o : (Required) Output file name.
+**-o** — (Required) Output file name.
 
--p : (Optional) Output topology file
+**-p** — (Optional) Output topology file.
 
--ct : (Optional) If used this will create a template file. The B factors can be edited to indicate placement of multiple proteins. More detail in examples section.
+**-ct** — (Optional) Creates a template file. B-factors can be edited to indicate placement of multiple proteins. See examples below.
 
--in_t: (Optional) If a template created by -ct is being used it is inputted with this flag. This will build a CG system with proteins indicated in -fs being placed where indicated in the template.
+**-in_t** — (Optional) Input a template created by `-ct`. Builds a CG system with proteins (supplied via `-fs`) placed at the positions indicated in the template.
 
--fs : (Optional) A text file with an ordered list of proteins for use in multiple protein placements.
+**-fs** — (Optional) A text file with an ordered list of proteins for multiple protein placements.
 
-#### Options relating to system size:
+#### System size
 
--x : (Required) Indicates size of box in x dimension
+**-x** — (Required) Box size in the x dimension.
 
--y : (Required) Indicates size of box in y dimension
+**-y** — (Required) Box size in the y dimension.
 
--z : (Required) Indicates size of box in z dimension
+**-z** — (Required) Box size in the z dimension.
 
-#### Membrane/lipid related options:
+#### Membrane/lipid options
 
--l : (Optional) Lipid type and relative abundance (NAME\[:N\]) in membrane (or just lower leaflet if -u used)
+**-l** — (Optional) Lipid type and relative abundance (`NAME[:N]`) in the membrane (or lower leaflet only if `-u` is used).
 
--u : (Optional) Lipid type and relative abundance (NAME\[:N\]) in upper leaflet
+**-u** — (Optional) Lipid type and relative abundance (`NAME[:N]`) in the upper leaflet.
 
--lo : (Optional) Lipid type and relative abundance (NAME\[:N\]) in outer membrane (or just lower leaflet if -uo used)
+**-lo** — (Optional) Lipid type and relative abundance (`NAME[:N]`) in the outer membrane (or lower leaflet if `-uo` is used).
 
--uo : (Optional) Lipid type and relative abundance (NAME\[:N\]) in outer membrane upper leaflet
+**-uo** — (Optional) Lipid type and relative abundance (`NAME[:N]`) in the outer membrane upper leaflet.
 
--a : (Default: 0.6) Area per lipid (nm\*nm) in membrane (or just lower leaflet if -au used)
+**-a** — (Default: 0.6) Area per lipid (nm²) in the membrane (or lower leaflet if `-au` is used).
 
--au : (Optional) Area per lipid (nm\*nm) in upper leaflet
+**-au** — (Optional) Area per lipid (nm²) in the upper leaflet.
 
--ao : (Optional) Area per lipid (nm\*nm) in outer membrane (or just lower leaflet if -au used)
+**-ao** — (Optional) Area per lipid (nm²) in the outer membrane (or lower leaflet if `-auo` is used).
 
--auo : (Optional) Area per lipid (nm\*nm) in outer membrane upper leaflet
+**-auo** — (Optional) Area per lipid (nm²) in the outer membrane upper leaflet.
 
--ps : (Default 0) Specifies distance between inner and outer membrane. 
+**-ps** — (Default: 0) Distance between inner and outer membrane.
 
--curv : (Default 0,0,1) Curvature of the membrane, consists of 3 comma separated values. The curvature at the middle the curvature as it relaxes back to planar and the direction of the curvature.
+**-curv** — (Default: 0,0,1) Membrane curvature: three comma-separated values for curvature at the peak, curvature at the base, and direction of curvature.
 
--curv_o: (Default 0,0,1) Curvature of outer membrane. see -curv.
+**-curv_o** — (Default: 0,0,1) Curvature of the outer membrane. See `-curv`.
 
--curv_ext: (Default 3) Extent of curved region in the absence of a protein.
+**-curv_ext** — (Default: 3) Extent of the curved region in the absence of a protein.
 
--micelle: (Optional) Builds a micelle around a protein instead of a bilayer.
+**-micelle** — (Optional) Builds a micelle around the protein instead of a bilayer.
 
--radius: (Optional) Builds a membrane disk with given radius, this can be useful for simulating nano-disks.
+**-radius** — (Optional) Builds a membrane disk with the given radius, useful for simulating nanodiscs.
 
--def: (Optional) Takes as input the Membrane_data folder generated by [MemPrOD](https://github.com/ShufflerBardOnTheEdge/MemPrOD). This will build the deformations predicted by MemPrOD. This cannot be used with -curv or -ps.
+**-def** — (Optional) Takes as input the `Membrane_data` folder generated by [MemPrOD](https://github.com/ShufflerBardOnTheEdge/MemPrOD). Builds the deformations predicted by MemPrOD. Cannot be used with `-curv` or `-ps`.
 
-#### Peptidoglycan layer related options.
+#### Peptidoglycan layer options
 
--pgl: (Optional) Number of PG layers to place at -pgl_z.
+**-pgl** — (Optional) Number of PG layers to place at `-pgl_z`.
 
--pgl_z: (Optional) Z position of PG layer relative to centre of periplasmic space.
+**-pgl_z** — (Optional) Z position of the PG layer relative to the centre of the periplasmic space.
 
--cper: (Optional) Percentage of cross-links.
+**-cper** — (Optional) Percentage of cross-links.
 
--lper: (Optional) Percentage of cross-links that are between layers.
+**-lper** — (Optional) Percentage of cross-links that are between layers.
 
--per33: (Optional) Percentage of 3-3 cross-links, all other cross-links will be 3-4.
+**-per33** — (Optional) Percentage of 3-3 cross-links; all other cross-links will be 3-4.
 
--oper: (Optional) Percentage chance of a monomer linking with a oligomer. (Actual chance of link is cper*oper)
+**-oper** — (Optional) Percentage chance of a monomer linking with an oligomer. (Actual chance of link is `cper * oper`.)
 
--gdist: (Default 0.75,4,8.9,0.25,10,45) Distribution of glycan strand lengths. Format as weight 1,standard deviation 1,mean 1,weight 2..., were each triple describes a gaussian. The sum of these forms the distribution
+**-gdist** — (Default: 0.75,4,8.9,0.25,10,45) Distribution of glycan strand lengths. Format as `weight1,stddev1,mean1,weight2,...` where each triple describes a Gaussian. The sum of these Gaussians forms the distribution.
 
-#### Protein related options:
+#### Protein options
 
--fudge : (Default 0.3) Fudge factor for allowing lipid-protein overlap
+**-fudge** — (Default: 0.3) Fudge factor for allowing lipid-protein overlap.
 
-#### Solvent related options:
+#### Solvent options
 
--sol : (Required) indicates the solvent used.
+**-sol** — (Required) Solvent type.
 
--sold : (Default 0.5) Indicates how tightly packed the solvent is.
+**-sold** — (Default: 0.5) Solvent packing density.
 
--solr : (Default 0.1) Magnitude of random deviations to solvent positions.
+**-solr** — (Default: 0.1) Magnitude of random deviations to solvent positions.
 
-#### Charge related options:
+#### Charge options
 
--posi_c0 : (Required) Positive ion type and relative abundance (NAME\[:N\]) in system (Or compartment 0 if -posi_c1/-posi_c2 used) When using multiple membranes disjoint compartments of water may form, these flags allow for each compartment to be neutralised independently and with different ions.
+**-posi_c0** — (Required) Positive ion type and relative abundance (`NAME[:N]`) in the system (or compartment 0 if `-posi_c1`/`-posi_c2` are also used). When using multiple membranes, disjoint water compartments may form; these flags allow each compartment to be neutralised independently with different ions.
 
--negi_c0 : (Required) Negative ion type and relative abundance (NAME\[:N\]) in system (Or compartment 0 if -negi_c1/-negi_c2 used).
+**-negi_c0** — (Required) Negative ion type and relative abundance (`NAME[:N]`) in the system (or compartment 0).
 
--posi_c1 : (Optional) Positive ion type and relative abundance (NAME\[:N\]) in compartment 1.
+**-posi_c1** — (Optional) Positive ion type and relative abundance in compartment 1.
 
--negi_c1 : (Optional) Negative ion type and relative abundance (NAME\[:N\]) in compartment 1.
+**-negi_c1** — (Optional) Negative ion type and relative abundance in compartment 1.
 
--posi_c2 : (Optional) Positive ion type and relative abundance (NAME\[:N\]) in compartment 2.
+**-posi_c2** — (Optional) Positive ion type and relative abundance in compartment 2.
 
--negi_c2 : (Optional) Negative ion type and relative abundance (NAME\[:N\]) in compartment 2.
+**-negi_c2** — (Optional) Negative ion type and relative abundance in compartment 2.
 
--ion_conc: (Default 0.15,0.15,0.15) Concentration of ions in each compartment.
+**-ion_conc** — (Default: 0.15,0.15,0.15) Ion concentration in each compartment.
 
--charge : (Default "auto") Charge of system. "auto" detects charge automatically.
+**-charge** — (Default: `auto`) Charge of the system. `auto` detects charge automatically.
 
--charge_ratio : (Optional) When supplied indicates how to split the charge across compartments, otherwise each compartment is neutralised separately.
+**-charge_ratio** — (Optional) How to split the charge across compartments. If not supplied, each compartment is neutralised separately.
 
--zpbc : (Optional) Determines if Z periodicity is used when calculating compartments.
-
-
-
-
+**-zpbc** — (Optional) Determines whether Z periodicity is used when calculating compartments.
 
 ### Examples
-These instructions will run through building a CG system with a curved membrane with multiple proteins placed.
 
-Initially a template needs to be created. To do this a command similar to the following should be run:
-    
->python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -ct template.pdb -negi_c0 CL -posi_c0 NA
+These instructions walk through building a CG system with a curved membrane containing multiple proteins.
 
-This will create a membrane with only POPE (-l POPE). The box size if set to be (10,10,50) although as this too small to contain the curvature it is automatically increased. The curvature is described by 0.1,0.15,1 indicating a curvature of 0.1 at the peak, a curvature 0.15 at the base, and the curved region points in positive Z direction. The curved region will maintain the curvature of 0.1 for 6 Angstroms before returning to planar. The name of the template file is template.pdb (-ct template.pdb)
-    
-After this open template.pdb in PyMOL. The position of the proteins will be indicated by the b-factors in this pdb. Select a single bead where you would like to place a protein and then type the command alter sele,b=1 After this deselect the bead and repeat the process increasing the b-fac value by 1 each time for each protein you would like to add.
-    
-It is important to increase the b-factors by 1 as this will indicated the order in which the proteins are placed. i.e. The n-th protein will be placed at the bead with b-factor n. Once all b-factors have been changed type the command save template.pdb.
-    
-Next run the following command in terminal:
-    
->python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -in_t template.pdb -fs prots.txt -negi_c0 CL -posi_c0 NA
-    
-Ensure all the membrane relevant values are the same. The template file (-in_t template.pdb) should be the one with altered b-factors. -fs takes the .txt mentioned earlier, this should contain the same number of proteins as altered b-facs. This will then build the system.
-    
-The flag -p will create a rudimentary .top file. The Protein related entries will need to be changed but the other values are correct.
+First, create a template:
 
-More detailed tutorials are available [here](Insane4MemPrO_tutorials.md)
+```
+python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -ct template.pdb -negi_c0 CL -posi_c0 NA
+```
+
+This creates a POPE-only membrane in a (10,10,50) box (automatically enlarged if needed to accommodate the curvature). The curvature `0.1,0.15,1` specifies a peak curvature of 0.1, a base curvature of 0.15, and the curved region pointing in the positive Z direction, maintained for 6 Å before returning to planar.
+
+Next, open `template.pdb` in PyMOL. Protein positions are indicated by b-factors. Select a single bead at each desired protein location and run `alter sele,b=N` where N increments by 1 for each protein (the Nth protein will be placed at the bead with b-factor N). Once all b-factors are set, run `save template.pdb`.
+
+Then build the final system:
+
+```
+python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -in_t template.pdb -fs prots.txt -negi_c0 CL -posi_c0 NA
+```
+
+Ensure all membrane-relevant values match the template command. `-in_t` supplies the edited template and `-fs` supplies a text file listing the same number of proteins as edited b-factors. The `-p` flag produces a rudimentary `.top` file; protein-related entries will need to be updated but all other values are correct.
+
+More detailed tutorials are available [here](Insane4MemPrO_tutorials.md).
 
 ## My protein didn't orient correctly
-If your protein hasn't oriented correctly then there are a number of things you can try:
-* Check all orientations, by loading "orientations.pdb" and looking at "orientations.txt". The correct orientation may not have been rank 1.
-* Check "curv_potential_curve.png" to see if your protein prefers a curved membrane. If so using the flag "-c" will help.
-* Check the pdb file is correct, missing atoms or residues can cause the surface to be incorrectly evaluated. Missing atoms should be fixed before orientation.
-* Using the flag "-wb" can sometimes be helpful in determining if atoms are missing. "-wb" will add the potential contribution of each residue as a b-factor which can be viewed in PyMOL.
-* If your protein is a peripheral membrane protein using the flag "-pr" will help greatly. In some cases "-pr" will help integral membrane proteins as well.
-* MemPrO runs with a membrane charge of 0 by default. Some proteins which associate with the membrane through charge interactions will not orient correctly with 0 charge, for these using the flag "-ch" ("-ch_o" for outer membrane) will set the charge. Values around "-0.005" are a good starting point.
 
+If your protein hasn't oriented correctly there are a number of things to try:
+
+* Check all orientations by loading `orientations.pdb` and reviewing `orientations.txt`. The correct orientation may not be rank 1.
+* Check `curv_potential_curve.png` to see if your protein prefers a curved membrane. If so, using `-c` will help.
+* Check the PDB file for missing atoms or residues, which can cause the surface to be incorrectly evaluated. Missing atoms should be fixed before orientation.
+* Using `-wb` can be helpful for diagnosing missing atoms — it writes the potential contribution of each residue as a b-factor, viewable in PyMOL.
+* If your protein is a peripheral membrane protein, using `-pr` will help greatly. In some cases `-pr` will also help integral membrane proteins.
+* MemPrO runs with a membrane charge of 0 by default. Some proteins that associate with the membrane through charge interactions will not orient correctly at 0 charge. For these, using `-ch` (or `-ch_o` for the outer membrane) to set the charge will help. Values around `-0.005` are a good starting point.
 
 ## FAQ
-There are currently no frequently asked questions. If you do have any questions or encounter errors that you cannot fix please contact me via my email m.parrag@warwick.ac.uk and I will do my best to provide help.
+
+There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact m.parrag@warwick.ac.uk.
