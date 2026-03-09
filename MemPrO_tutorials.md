@@ -174,4 +174,4 @@ For an atomistic input, the flag `-res_cg` will also be needed. This takes a fol
 
 ## Final Comments
 
-Hopefully with the above 6 tutorials you should now be set to use MemPrO to orient proteins and build CG systems ready for simulation. MemPrO has a few more advanced features, and may have more in future, that are not covered here. Some advanced tutorials may become available in the future. For now, if you run into difficulties or find errors, please let me know by emailing m.parrag@warwick.ac.uk and I'll do my best to help.
+Hopefully with the above 6 tutorials you should now be set to use MemPrO to orient proteins and build CG systems ready for simulation. MemPrO has a few more advanced features, and may have more in future, that are not covered here. Some advanced tutorials may become available in the future. For now, if you run into difficulties or find errors, please let me know by emailing phillip.stansfeld@warwick.ac.uk and I'll do my best to help.
