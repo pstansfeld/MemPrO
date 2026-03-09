@@ -3671,7 +3671,25 @@ def main():
     import logging
 
     #Reading command line args
-    parser = argparse.ArgumentParser(prog="MemPrO",description="Orients a protein in a membrane. Currently only for E-coli membranes, but this will change in future updates. Currently flags -c -c_ni -ps -fc are WIP, these can still be used at the your own peril.")
+    _epilog = """
+Examples:
+
+  Basic orientation on a grid of 40 starting configurations with 150 iterations:
+    mempro -f input.pdb -o Output/ -ng 40 -ni 150
+
+  As above, with global curvature minimisation and per-bead potentials written to b-factors:
+    mempro -f input.pdb -o Output/ -ng 40 -ni 150 -c -wb
+
+  Double membrane orientation, then build the top 2 ranked CG systems using Insane4MemPrO.
+  Inner membrane: POPE/POPG/CARD; outer membrane upper leaflet: LIPA:
+    mempro -f input.pdb -o Output/ -ng 40 -ni 150 -dm -bd 2 -bd_args "-negi_c0 CL -posi_c0 NA -sol W -l POPE:7 -l POPG:2 -l CARD:1 -uo LIPA"
+"""
+    parser = argparse.ArgumentParser(
+        prog="MemPrO",
+        description="Orients a protein in a membrane. Currently only for E. coli membranes, but this will change in future updates. Flags -c -c_ni -ps -fc are WIP and can be used at your own peril.",
+        epilog=_epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("-f", "--file_name",help = "Input file name (.pdb)")
     parser.add_argument("-o","--output",help="Name of the output directory (Default: Orient)")
     parser.add_argument("-ni","--iters",help="Number of minimisation iterations (Default: 150)")
