@@ -1,4 +1,4 @@
-#Version X of MemPrO
+#Version 0.2.0 of MemPrO
 
 import os
 import sys
@@ -3877,6 +3877,10 @@ def main():
 
 
     fn = args.file_name
+
+    if fn is None:
+        parser.print_help()
+        sys.exit(0)
 
     if(not os.path.exists(fn)):
     	print("ERROR: Cannot find file: "+fn)
