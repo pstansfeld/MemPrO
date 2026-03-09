@@ -186,4 +186,4 @@ The NH3 beads in the POPE lipids should be deformed in the same way as predicted
 
 ## Final Comments
 
-Hopefully you now feel confident using Insane4MemPrO to build complex systems with and without MemPrO's automatic build features. There are some more advanced features of Insane4MemPrO not covered here, and more tutorials on these may become available in the future. For now, if you run into any problems or bugs please let me know at m.parrag@warwick.ac.uk and I will do my best to help.
+Hopefully you now feel confident using Insane4MemPrO to build complex systems with and without MemPrO's automatic build features. There are some more advanced features of Insane4MemPrO not covered here, and more tutorials on these may become available in the future. For now, if you run into any problems or bugs please let me know at phillip.stansfeld@warwick.ac.uk and I will do my best to help.
