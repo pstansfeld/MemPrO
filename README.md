@@ -24,9 +24,9 @@ pip install mempro
 
 Clone the GitHub repository. Python 3.11 or later is required, along with the following packages:
 
-* JAX 0.6.x (CPU). Note: JAX 0.7 and later are not currently supported due to a performance regression; please install the 0.6.x series specifically:
+* JAX 0.6.0 (CPU). Note: only JAX 0.6.0 is supported — versions 0.6.1 and later introduced breaking changes to the CPU runtime that cause crashes or significant performance regressions:
 ```
-pip install "jax[cpu]>=0.6.0,<0.7.0"
+pip install "jax[cpu]==0.6.0"
 ```
 * Matplotlib 3.8.4 or later:
 ```
@@ -313,4 +313,4 @@ If your protein hasn't oriented correctly there are a number of things to try:
 
 ## FAQ
 
-There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact m.parrag@warwick.ac.uk.
+There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact phillip.stansfeld@warwick.ac.uk.
