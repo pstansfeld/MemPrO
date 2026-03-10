@@ -24,13 +24,9 @@ pip install mempro
 
 Clone the GitHub repository. Python 3.11 or later is required, along with the following packages:
 
-* JAX 0.6.0 or later (CPU):
+* JAX 0.6.x (CPU). Note: JAX 0.7 and later are not currently supported due to a performance regression; please install the 0.6.x series specifically:
 ```
-pip install "jax[cpu]>=0.6.0"
-```
-* JAX with CUDA support (GPU, optional):
-```
-pip install "jax[cuda]>=0.6.0"
+pip install "jax[cpu]>=0.6.0,<0.7.0"
 ```
 * Matplotlib 3.8.4 or later:
 ```
@@ -88,9 +84,7 @@ MemPrO is intended to be run on PDB files, and will output the following files:
 
 **-ng, --grid_size** — Number of initial starting configurations. Defaults to 36. For best efficiency this should be a multiple of the number of CPUs being used. More starting configurations sample the space of minima better, but there are diminishing returns and generally no more than 40 are needed.
 
-**-nc, --num_cpus** — Number of CPU cores (or GPU devices) to use. Defaults to all available cores. For best performance with `-ng`, set `-nc` to a value that divides `-ng` evenly.
-
-**-p, --platform** — Compute platform: `cpu` (default) or `gpu`. Use `gpu` only with `jax[cuda]` installed.
+**-nc, --num_cpus** — Number of CPU cores to use. Defaults to all available cores. For best performance with `-ng`, set `-nc` to a value that divides `-ng` evenly.
 
 **-rank, --rank** — Ranking method for minima: `h` ranks by percentage hits, `p` ranks by potential, `auto` (default) ranks by a value calculated from approximate minima depth and potential.
 
@@ -319,4 +313,4 @@ If your protein hasn't oriented correctly there are a number of things to try:
 
 ## FAQ
 
-There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact phillip.stansfeld@warwick.ac.uk.
+There are currently no frequently asked questions. If you have any questions or encounter errors you cannot fix, please contact m.parrag@warwick.ac.uk.

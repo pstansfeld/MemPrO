@@ -9,7 +9,7 @@ description = "Membrane Protein Orientation in Lipid Bilayers"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "jax[cpu]>=0.6.0",
+    "jax[cpu]>=0.6.0,<0.7.0",
     "matplotlib>=3.8.4",
 ]
 
