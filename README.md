@@ -232,13 +232,29 @@ MemPrO comes with Insane4MemPrO, a CG system builder based on [Insane](https://g
 
 **-uo** — (Optional) Lipid type and relative abundance (`NAME[:N]`) in the outer membrane upper leaflet.
 
-**-a** — (Default: 0.6) Area per lipid (nm²) in the membrane (or lower leaflet if `-au` is used).
+Lipid names follow the [Martini 3 lipidome](https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters) (Pedersen et al. 2025, ACS Cent. Sci.): all its bilayer lipids can be built, bead for bead as in its `.itp` files, including ether (`XXEC`, `XXEE`, ...) and plasmalogen (`XXLC`, `XXLE`, ...) phospholipids, sphingomyelins, ceramides, phosphoinositides, cardiolipins (`TOCL`, `TMCL`), BMP (`DO2B`, `DO3B`), `DODG`, `DOTAP` and cholesterol (`CHOL`, or `CHL1`). Use the lipidome `.itp` files for the topology. Their definitions are in `lipidome_m3.dat`. Note that in the lipidome `DLPC`, `DLPE` are 18:2 (12:0 is `DUPC`, `DUPE`); the Martini 3.0 definitions are kept as `DLPC.o`, `DLPE.o` and `DAPC.o`. Insane4MemPrO also has bacterial lipids (LPS, cardiolipins, glycolipids, hopanoids, quinones) and peptidoglycan from other Martini 3 parameter sets.
+
+**-lipid_itp** — (Optional, repeatable) A lipid topology (`.itp`). Lipids in it with an `;@INSANE alhead=... allink=... altail=...` line (as in the lipidome files and those made by its lipid generator) are built from that line, and the charges of all its molecules are used to neutralise the system. A warning is printed if a lipid in use has different bead names in the `.itp` than in Insane4MemPrO's template.
+
+**-alname**, **-alhead**, **-allink**, **-altail** — (Optional, repeatable) Define a lipid from head, linker and tail strings, as in the lipidome lipid generator. Heads: `C` (NC3), `E` (NH3), `G` (GL0), `S` (CNO), `P`/`O` (PO4), `COH`, `PS1`, `PS2`, and inositols `PI`, `P1`-`P7`. Linkers: `G` (GLn), `E` (ETn, ether), `L` (PLn, plasmalogen), `A1 A2` (OH1 AM2, sphingosine). Tails: one string of bead letters per linker (e.g. `CDCC`), where `c`, `t` and `F` give beads named C, T and D.
+
+**-a** — (Optional) Area per lipid (nm²) in the membrane (or lower leaflet if `-au` is used). By default the area per lipid of each leaflet is the abundance-weighted mean of the built-in per-lipid values (see `-apl`), so for example `-l POPE:7 -l POPG:2 -l CARD:1` gives about 0.67 nm² and `-uo LIPA` 1.56 nm². Built-in values are fluid-phase experimental areas (~303 K) where available, otherwise from simulation; sources are noted beside `lipid_apl` in `Insane4MemPrO.py`. The areas used are printed when building. In mixed leaflets, lipids much larger than the smallest one take several grid sites (area / smallest area, rounded), so for example cardiolipin among PE takes two sites and sits between them, and cholesterol among POPC takes half the space of a POPC. Giving `-a`/`-au`/`-ao`/`-auo` explicitly places one lipid per site, as before.
 
 **-au** — (Optional) Area per lipid (nm²) in the upper leaflet.
 
 **-ao** — (Optional) Area per lipid (nm²) in the outer membrane (or lower leaflet if `-auo` is used).
 
 **-auo** — (Optional) Area per lipid (nm²) in the outer membrane upper leaflet.
+
+**-apl** — (Optional, repeatable) Area per lipid (nm²) for one lipid type (`NAME:AREA`), overriding the built-in value. Built-in values are in `lipid_apl` in `Insane4MemPrO.py`: experimental areas from the Martini 3 lipidome benchmark where measured, otherwise the lipidome's Martini 3 single-lipid bilayer areas scaled by 1.04 (the mean ratio of experiment to those simulations, sd 0.03). Ether and plasmalogen lipids take the area of their diacyl analogue +1.5% and +5%. Lipids not listed use a value for their headgroup class (PC, PE, PG, PS, PA, SM, ceramide) or 0.6 nm².
+
+**-grid** — (Default: circular) Lipid grid for flat membranes filling the box. `circular` places lipids on concentric rings; `square` uses a square lattice that is continuous across the periodic boundaries, avoiding close contacts where clipped rings meet at the box edges. Either way a flat leaflet gets (box area)/(area per lipid) lipids before any are removed around the protein. Curved membranes and `-radius` disks always use rings.
+
+**-temp** — (Optional) Temperature (K) for the built-in phospholipid, cardiolipin and phosphoinositide areas, which otherwise refer to ~303 K (or the lowest temperature at which the lipid is fluid, e.g. DPPC 323 K, sphingomyelin 318 K; see `apl_ref_temp`). Areas are scaled by 0.25% per K, the typical fluid-phase expansion. LPS, sterol and hopanoid values are not scaled. Below a lipid's melting temperature (e.g. DPPC, sphingomyelin) the scaled value is not meaningful.
+
+**-apl_ff** — (Default: exp) `exp` uses experimental areas; `m3` scales the same lipids to Martini 3 equilibrium areas (0.94 × experimental, as found for PO lipids in the Martini 3 lipidome benchmark), so the box starts closer to its relaxed size. Total box area relaxes in NPT either way; this mainly reduces the initial shrinkage. Cholesterol is not corrected for condensing: it keeps a steric 0.40 nm², and as it flips between leaflets in Martini any resulting imbalance relaxes.
+
+**-balance** — (Default: off) Balance the two leaflets of each membrane after lipids clashing with the protein have been removed, by removing lipids at random from the fuller leaflet. `area` matches the total lipid area of the leaflets (number × area per lipid), `number` matches the lipid counts. The lipid area of each leaflet is always printed, with a warning if they differ by more than 5%, as a large mismatch can induce curvature. Some difference is expected where the protein occupies more of one leaflet than the other, in which case balancing would leave the fuller leaflet under-packed.
 
 **-ps** — (Default: 0) Distance between inner and outer membrane.
 
@@ -327,6 +343,16 @@ python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p 
 Ensure all membrane-relevant values match the template command. `-in_t` supplies the edited template and `-fs` supplies a text file listing the same number of proteins as edited b-factors. The `-p` flag produces a rudimentary `.top` file; protein-related entries will need to be updated but all other values are correct.
 
 More detailed tutorials are available [here](Insane4MemPrO_tutorials.md).
+
+### Matching leaflets after equilibration
+
+Lipids don't flip between leaflets in Martini (except sterols), so if one leaflet starts more crowded than the other the mismatch persists and can bend the membrane. This matters most for asymmetric membranes (e.g. LPS over phospholipids) and around proteins that occupy more of one leaflet than the other. After a short NPT equilibration, check the leaflets with:
+
+```
+mempro-leaflets eq.gro
+```
+
+(or `python PATH/TO/leaflet_check.py eq.gro`; several frames or a multi-frame `.gro` from `gmx trjconv` can be given and are averaged). For each membrane it reports each leaflet's available area (box area minus the protein's largest cross-section within that leaflet), the area its lipids should occupy (from the Insane4MemPrO table, with the same `-apl`, `-temp` and `-apl_ff` options), how stretched or compressed each leaflet is, and a suggested `-asym` to rebuild with so both are equally strained. This is area matching, an approximation to zero differential stress between the leaflets; the protein cross-section depends on the bead radius (`-radius`, default 0.26 nm), so treat the suggestion as a guide, rebuild and check again. `-asym` applies to every membrane in the system.
 
 ## My protein didn't orient correctly
 
