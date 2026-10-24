@@ -1,0 +1,20 @@
+; Energy minimisation of the built system
+integrator               = steep
+nsteps                   = 25000
+emtol                    = 100
+emstep                   = 0.001
+define                   = -DFLEXIBLE
+
+; Martini 3 non-bonded settings (as the group's cgmd.mdp)
+cutoff-scheme            = Verlet
+nstlist                  = 20
+pbc                      = xyz
+verlet-buffer-tolerance  = 0.005
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15
+epsilon_rf               = 0
+coulomb-modifier         = Potential-shift
+vdw-type                 = cutoff
+rvdw                     = 1.1
+vdw-modifier             = Potential-shift

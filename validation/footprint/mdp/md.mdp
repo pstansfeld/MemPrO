@@ -1,0 +1,34 @@
+; Semi-isotropic NPT production (Martini 3, 310 K). nsteps is set by footprint_md.py run --ns.
+integrator               = md
+dt                       = 0.02
+nsteps                   = 250000         ; 5 ns
+nstlog                   = 5000
+nstenergy                = 5000
+nstxout-compressed       = 5000           ; every 0.1 ns, for the leaflet analysis
+compressed-x-precision   = 1000
+
+; Martini 3 non-bonded settings (as the group's cgmd.mdp)
+cutoff-scheme            = Verlet
+nstlist                  = 20
+pbc                      = xyz
+verlet-buffer-tolerance  = 0.005
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15
+epsilon_rf               = 0
+coulomb-modifier         = Potential-shift
+vdw-type                 = cutoff
+rvdw                     = 1.1
+vdw-modifier             = Potential-shift
+
+tcoupl                   = v-rescale
+tc-grps                  = PROTEIN LIPID SOL_ION
+tau_t                    = 1.0 1.0 1.0
+ref_t                    = 310 310 310
+pcoupl                   = c-rescale
+pcoupltype               = semiisotropic
+tau_p                    = 4.0
+compressibility          = 3e-4 3e-4
+ref_p                    = 1.0 1.0
+gen_vel                  = no
+continuation             = yes

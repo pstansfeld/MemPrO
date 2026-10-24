@@ -1,0 +1,36 @@
+; Short NPT equilibration with the protein backbone restrained (martinize2 -p backbone), small time step
+integrator               = md
+dt                       = 0.01
+nsteps                   = 50000          ; 0.5 ns
+define                   = -DPOSRES -DPOSRES_FC=1000   ; martinize2 -p backbone restraints and their force constant
+nstlog                   = 5000
+nstenergy                = 5000
+nstxout-compressed       = 0
+
+; Martini 3 non-bonded settings (as the group's cgmd.mdp)
+cutoff-scheme            = Verlet
+nstlist                  = 20
+pbc                      = xyz
+verlet-buffer-tolerance  = 0.005
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15
+epsilon_rf               = 0
+coulomb-modifier         = Potential-shift
+vdw-type                 = cutoff
+rvdw                     = 1.1
+vdw-modifier             = Potential-shift
+
+tcoupl                   = v-rescale
+tc-grps                  = PROTEIN LIPID SOL_ION
+tau_t                    = 1.0 1.0 1.0
+ref_t                    = 310 310 310
+pcoupl                   = c-rescale
+pcoupltype               = semiisotropic
+tau_p                    = 4.0
+compressibility          = 3e-4 3e-4
+ref_p                    = 1.0 1.0
+refcoord-scaling         = com
+gen_vel                  = yes
+gen_temp                 = 310
+gen_seed                 = -1

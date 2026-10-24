@@ -1,6 +1,6 @@
 # Design: per-leaflet protein footprint (`-footprint map`)
 
-Status: implemented as `-footprint map` (branch `lipid-area-table`, 2026-10-23); the MD validation (step 2 of the plan) is still to do. See [Implementation](#implementation) for the QmcA diagnosis and the choices made where the design left them open.
+Status: implemented as `-footprint map` (2026-10-23), default still `clash`. A first MD validation (2026-10-24) found `map` matches the leaflets as well as `clash` for 4G1U and halves the mismatch for QmcA, but QmcA's lower leaflet is still under-filled; see [MD validation](#md-validation). See [Implementation](#implementation) for the QmcA diagnosis and the choices made where the design left them open.
 This is our own design. Do not copy or adapt code from COBY (its approach is an alpha-shape outline per leaflet; this one is not).
 
 ## Problem
@@ -110,4 +110,28 @@ With `map` the lipid density inside and outside the ring is the same in both lea
 - **Geometry.** `-mt` gives the phosphate-to-phosphate thickness (MemPrO's reported thickness: hydrophobic thickness + 10 A). `build_oriented` passes it, matching membranes by position: Insane's `-l`/`-u` membrane (at -ps) is MemPrO's outer membrane unless `-flip`. Without `-mt` each leaflet extends to its lipids' PO beads as built (+/-1.65 nm for POPE). With `-def` the midplane and thickness follow MemPrOD per pixel. Lipids are still built with heads at +/-2 nm either way.
 - **Placement.** Grid sites with placement fraction < 0.5 are dropped, the least available removed first if there are too many, and missing sites added one at a time in the largest gap between free pixels (0.2 nm lattice). Spares (5%, at least 20) take lipids whose tails fail; tails are traced past the protein only, without fill beads.
 - **Scope.** Flat membranes filling the box, including `-ps` and `-def`. Curved membranes, pores, micelles and `-radius` disks fall back to `clash`. The default stays `clash` until the MD comparison is done.
+
+## MD validation
+
+Scripts: `validation/footprint/` (`footprint_md.py prepare | build | run | analyse`, see its README).
+
+**Method.**
+- Martini 3, martinize2 with an elastic network, POPE:POPG 8:2, MemPrO's thickness passed as `-mt`, and the box MemPrO `-bd` would use.
+- Energy minimisation, 0.5 ns NPT with the backbone restrained, then 20 ns semi-isotropic NPT at 310 K (c-rescale, reaction field, the group's `cgmd.mdp` settings).
+- Three independent builds per method; frames after 5 ns analysed.
+- The metric does not depend on the footprint definition: area-weighted lipid packing of each leaflet more than 3 nm from protein beads within 2.5 nm of the midplane. It is reported for the bulk membrane (the largest connected region) and, separately, for regions the protein encloses.
+
+**Results** (up-lo is upper minus lower packing; 0 means matched; mean ± SE over 3 replicates):
+
+| Protein | Method | Lipids up/lo (build) | up-lo, bulk | up-lo, enclosed |
+|---|---|---|---|---|
+| 4G1U | clash | ~385 / ~385 | +1.5 ± 1.4% | none |
+| 4G1U | map | 369 / 367 | +1.3 ± 0.7% | none |
+| QmcA | clash | ~1719 / ~1489 | +13.8 ± 1.3% | +37.6 ± 1.2% |
+| QmcA | map | 1717 / 1548 | +6.5 ± 1.0% | +37.8 ± 0.6% |
+
+- **4G1U.** Both methods are within the 1-2% target, and they do not differ significantly. A single 4 ns run had suggested `map` was worse (+3.2%), which the replicates did not confirm.
+- **QmcA, bulk.** `map` halves the mismatch, but the lower leaflet is still about 6% under-filled away from the protein. That is roughly 100 lipids (about 60 nm²) of the 119.5 nm² lower footprint, so the map over-counts the cap rim's footprint. The likely cause is the headgroup-layer rule (any protein in the 0.6 nm beyond the phosphates excludes lipids entirely); a sensitivity test is next.
+- **QmcA, inside the ring.** The interior (r < ~7 nm) is mismatched by about 38% with either method. It is a sealed patch that sags towards the cap's cavity in MD, compressing the upper leaflet. This does not depend on the footprint and is not addressed by it.
+- **`mempro-leaflets`** reports +1.3% for the QmcA `map` builds, because it uses the same footprint definition as the builder. An independent MD metric is needed to judge the definition itself.
 
