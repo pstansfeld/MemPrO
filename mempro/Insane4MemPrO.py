@@ -4402,6 +4402,7 @@ if lipL:
 			source = "lipid lengths"
 		maps = footprint_maps(prot_coords_plain,prot_radii,box_xy,mid,half_up*scale,half_lo*scale,enclosed_free=options["-ring"].value is not None)
 		print("Footprint map%s: midplane z %.2f nm, phosphate planes +%.2f/-%.2f nm (from %s)"%(" of membrane %d"%(gi+1) if zdist > 1e-5 else "",np.mean(mid),half_up,half_lo,source))
+		print("  Leaflets are built for zero differential stress: each leaflet's lipid area (lipids x area per lipid) equals its free area. Use -asym to build a different state.")
 		placed_both = []
 		for name,grid,direcs,tails,sgn,site_area,store in (("upper",up_grids[gi],direcss[gi],tailsUs[gi],1,[site_u,site_uo][gi],upper),
 				("lower",lo_grids[gi],direcs2s[gi],tailsLs[gi],-1,[site_l,site_lo][gi],lower)):
@@ -4439,6 +4440,8 @@ if lipL:
 		total_up_lips = up_grids[gi].shape[0]
 		total_lo_lips = lo_grids[gi].shape[0]
 		use_map = footprint_mode == "map" and membrane_flat(gi)
+		if footprint_mode == "clash" and (options["-ps"].value > 1e-5 or gi == 0) and len(prot_coords_plain):
+			print("-footprint clash: the lipid counts of the leaflets are not set from their free areas, so the leaflets may not be at zero differential stress (see -footprint map)")
 		if footprint_mode == "map" and not use_map and (options["-ps"].value > 1e-5 or gi == 0):
 			print("-footprint map is for flat membranes filling the box; using -footprint clash for membrane %d"%(gi+1))
 		prot_coords = prot_coords_plain if use_map else prot_coords_fill

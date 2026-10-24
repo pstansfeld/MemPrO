@@ -57,6 +57,18 @@ for d in runs/4G1U/{clash,map}_r{1,2,3}; do $PY footprint_md.py run $d --ns 20; 
 $PY footprint_md.py analyse runs/4G1U --skip-ns 5
 ```
 
+### Differential stress
+
+Insane4MemPrO builds for zero differential stress. To express a mismatch as a stress, run protein-free controls with the same lipids and settings, and pass them to `analyse` as a reference:
+
+```
+$PY footprint_md.py control runs/control --reps 3
+for d in runs/control/control_r{1,2,3}; do $PY footprint_md.py run $d --ns 20; done
+$PY footprint_md.py analyse runs/QmcA --skip-ns 5 --reference runs/control
+```
+
+The controls give the reference area per lipid of each leaflet and the area compressibility, K_A = kT⟨A⟩/var(A), from the box-area fluctuations. `analyse` then adds each leaflet's strain against the reference, and the differential stress Σ ≈ (K_A/2)(strain_up − strain_lo), in mN/m (upper minus lower tension; 0 is zero differential stress). K_A from 3 × 20 ns is uncertain by about ±40%, and every Σ scales with it.
+
 `run` skips stages that have already finished (their `.gro` exists) and resumes from a checkpoint (`.cpt`). Pass extra `gmx mdrun` options with `--mdrun-args`, e.g. `--mdrun-args "-nb gpu -ntomp 8"`.
 
 ## What each step does
@@ -85,5 +97,5 @@ Things to keep in mind when reading the results:
 
 - **What a match means.** A build whose leaflets stay matched in MD has `up-lo` near 0. A built-in mismatch shows up as a persistent `up-lo` of the same sign. A few ns is enough for the far region to equilibrate laterally, but not for any curvature the mismatch induces to develop.
 - **Region size.** The region beyond 3 nm must be large enough to give a stable density: at least about 100 nm².
-- **QmcA's ring interior.** The middle of the ring (r < ~7 nm) is also more than 3 nm from the protein, so its lipids are counted. They can't exchange with the outside over a few ns, so a mismatch inside the ring is averaged with the outside.
+- **QmcA's ring interior.** The middle of the ring (r < ~7 nm) is also more than 3 nm from the protein. Its lipids can't exchange with the outside over a few ns, so `analyse` reports it as a separate `enclosed` region next to the `bulk`.
 - **Noise.** Repeat runs (rebuilding gives a different random lipid placement) give a better estimate of the noise than `se` alone.

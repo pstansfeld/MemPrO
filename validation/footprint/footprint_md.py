@@ -258,6 +258,33 @@ def cmd_build(args):
               % (out, box[0], box[1], box[2], counts["System"], leaf.group(1), leaf.group(2)))
 
 
+def cmd_control(args):
+    """Protein-free bilayers with the same lipids, ions and run settings: the reference for analyse --reference."""
+    missing = [n for n in FF_FILES if not os.path.exists(os.path.join(args.ff, n))]
+    if missing:
+        sys.exit("Missing from --ff %s: %s" % (args.ff, ", ".join(missing)))
+    box = [float(v) for v in args.box.split(",")]
+    os.makedirs(args.dir, exist_ok=True)
+    for k in range(args.reps):
+        out = os.path.join(args.dir, "control" if args.reps == 1 else "control_r%d" % (k + 1))
+        os.makedirs(out, exist_ok=True)
+        cmd = [sys.executable, args.insane, "-x", str(box[0]), "-y", str(box[1]), "-z", str(box[2]),
+               *shlex.split(args.lipids), "-sol", "W", "-negi_c0", "CL", "-posi_c0", "NA", "-o", "system.gro", "-p", "insane.top"]
+        log = run(cmd, cwd=out, log="insane.log")
+        top = read_text(os.path.join(out, "insane.top"))
+        for n in FF_FILES:
+            shutil.copy(os.path.join(args.ff, n), out)
+        if os.path.exists(os.path.join(args.ff, FF_BONDED)):
+            shutil.copy(os.path.join(args.ff, FF_BONDED), out)
+            top = top.replace('#include "martini_v3.0.0.itp"\n', '#include "martini_v3.0.0.itp"\n#include "%s"\n' % FF_BONDED, 1)
+        with open(os.path.join(out, "topol.top"), "w") as f:
+            f.write(top)
+        counts = write_index(os.path.join(out, "system.gro"), os.path.join(out, "index.ndx"))
+        leaf = re.search(r"; (\d+) lipids in upper leaflet, (\d+) lipids in lower leaflet", log)
+        print("Built %s: box %.2f x %.2f x %.2f nm, %d beads, %s upper / %s lower lipids"
+              % (out, box[0], box[1], box[2], counts["System"], leaf.group(1), leaf.group(2)))
+
+
 # -------------------------------------------------------------------------------------------------------------------- run
 
 def separate_overlaps(gro_in, gro_out, min_dist=0.05, shift=0.1, seed=1):
@@ -294,6 +321,31 @@ def em_max_force(log):
     return float(m[-1]) if m else float("nan")
 
 
+def drop_empty_protein_group(mdp, ndx):
+    """
+    For systems without protein (controls): removes the PROTEIN temperature-coupling group, and the backbone
+    restraint defines, which grompp rejects when nothing in the topology uses them.
+    """
+    groups = re.findall(r"\[ (\S+) \]\n([^\[]*)", read_text(ndx))
+    if any(name == "PROTEIN" and body.split() for name, body in groups):
+        return
+    text = read_text(mdp)
+    text = re.sub(r"(?m)^define\s*=.*$", "; define removed: no protein to restrain", text)
+    m = re.search(r"(?m)^tc-grps\s*=\s*(.*)$", text)
+    if not m or "PROTEIN" not in m.group(1).split():
+        with open(mdp, "w") as f:
+            f.write(text)
+        return
+    names = m.group(1).split(";")[0].split()
+    keep = [i for i, n in enumerate(names) if n != "PROTEIN"]
+    for key in ("tc-grps", "tau_t", "ref_t"):
+        km = re.search(r"(?m)^(%s\s*=\s*)([^;\n]*)(.*)$" % re.escape(key), text)
+        values = km.group(2).split()
+        text = text[:km.start()] + km.group(1) + " ".join(values[i] for i in keep) + km.group(3) + text[km.end():]
+    with open(mdp, "w") as f:
+        f.write(text)
+
+
 def mdp_with_steps(src, dst, nsteps):
     with open(src) as f:
         text = f.read()
@@ -320,6 +372,7 @@ def cmd_run(args):
             mdp_with_steps(src, os.path.join(d, mdp), nsteps)
         else:
             shutil.copy(src, os.path.join(d, mdp))
+        drop_empty_protein_group(os.path.join(d, mdp), os.path.join(d, "index.ndx"))
         if os.path.exists(os.path.join(d, name + ".cpt")):
             run(mdrun + ["-deffnm", name, "-cpi", name + ".cpt"], cwd=d, log=name + ".mdrun.log")
             continue
@@ -433,10 +486,58 @@ def run_dirs(top):
     """Built systems in a protein directory with an MD run: {method: [(name, path), ...]}, for METHOD and METHOD_rN."""
     found = {}
     for name in sorted(os.listdir(top), key=lambda n: (n.split("_r")[0], int(n.split("_r")[1]) if "_r" in n and n.split("_r")[1].isdigit() else 0)):
-        m = re.fullmatch(r"(%s)(?:_r(\d+))?" % "|".join(METHODS), name)
+        m = re.fullmatch(r"(%s)(?:_r(\d+))?" % "|".join(METHODS + ("control",)), name)
         if m and os.path.exists(os.path.join(top, name, "md.xtc")):
             found.setdefault(m.group(1), []).append((name, os.path.join(top, name)))
     return found
+
+
+KB_T_310 = 1.380649e-23 * 310.0  # J
+
+
+def box_area_series(d, args):
+    """Box area (nm^2) over the analysed part of the production run, from md.edr."""
+    xvg = os.path.join(d, "box.xvg")
+    if not os.path.exists(xvg) or os.path.getmtime(xvg) < os.path.getmtime(os.path.join(d, "md.edr")):
+        run([args.gmx, "energy", "-f", "md.edr", "-o", "box.xvg", "-b", str(args.skip_ns * 1000)], cwd=d,
+            stdin="Box-X\nBox-Y\n\n", log="energy.log")
+    rows = [l.split() for l in read_text(xvg).splitlines() if l and l[0] not in "#@"]
+    xy = np.array([[float(r[1]), float(r[2])] for r in rows])
+    return xy[:, 0] * xy[:, 1]
+
+
+def reference_state(ref_dir, args, lc, areas, fp):
+    """
+    Tensionless reference from protein-free controls: the area-weighted packing of a leaflet (lipid area from the area
+    table per nm^2 of box) and the bilayer area compressibility K_A = kT <A> / var(A) (mN/m), averaged over controls.
+    """
+    controls = run_dirs(ref_dir).get("control", [])
+    if not controls:
+        sys.exit("No control runs (control or control_rN with md.xtc) in %s" % ref_dir)
+    packing, ka, diffs = [], [], []
+    for name, d in controls:
+        r = analyse_method(d, args, lc, areas, fp)
+        g = r["bulk"]
+        packing.append((g["upper"]["packing"] + g["lower"]["packing"]) / 2)
+        diffs.append(g["diff"])
+        area = box_area_series(d, args)
+        ka.append(KB_T_310 * area.mean() / area.var() * 1e18 * 1e3)
+    ref = {"controls": len(controls), "packing": float(np.mean(packing)), "ka": float(np.mean(ka)),
+           "ka_sd": float(np.std(ka)), "control_diff": float(np.mean(diffs)),
+           "control_diff_se": float(np.std(diffs, ddof=1) / np.sqrt(len(diffs))) if len(diffs) > 1 else float("nan")}
+    print("Reference (%d protein-free control(s)): packing %.4f, K_A %.0f +/- %.0f mN/m, control up-lo %+.2f%% (se %.2f)"
+          % (ref["controls"], ref["packing"], ref["ka"], ref["ka_sd"], ref["control_diff"], ref["control_diff_se"]))
+    return ref
+
+
+def differential_stress(region, ref):
+    """
+    Estimated differential stress (mN/m, upper minus lower leaflet tension) in a region: each leaflet's strain
+    relative to the tensionless reference packing, times the monolayer area compressibility K_A/2. Linear
+    elasticity, ignoring curvature; an estimate for comparing builds.
+    """
+    strain = {leaf: ref["packing"] / region[leaf]["packing"] - 1 for leaf in ("upper", "lower")}
+    return strain["upper"], strain["lower"], ref["ka"] / 2 * (strain["upper"] - strain["lower"])
 
 
 def cmd_analyse(args):
@@ -447,26 +548,37 @@ def cmd_analyse(args):
     if not dirs:
         sys.exit("No md.xtc in %s/{%s}[_rN]" % (args.dir, ",".join(METHODS)))
     results = {}
-    for method in METHODS:
+    for method in METHODS + ("control",):
         for name, d in dirs.get(method, []):
             print("Analysing %s ..." % d, flush=True)
             results[name] = analyse_method(d, args, lc, areas, fp)
+    ref = reference_state(args.reference, args, lc, areas, fp) if args.reference else None
+    if ref:
+        for r in results.values():
+            for region in REGIONS:
+                if region in r:
+                    eu, el, sigma = differential_stress(r[region], ref)
+                    r[region].update({"strain_upper": eu, "strain_lower": el, "stress": sigma})
+        results["_reference"] = ref
     with open(os.path.join(args.dir, "results.json"), "w") as f:
         json.dump(results, f, indent=1)
+    results.pop("_reference", None)
     print("\nLipids beyond %.1f nm of the protein (%s, frames after %g ns)" % (args.cutoff, args.dir, args.skip_ns))
-    print("%-9s %-9s %8s %6s %6s %8s %8s %10s %7s %13s" % ("run", "region", "area", "n_up", "n_lo", "rho_up", "rho_lo", "up-lo (%)", "se (%)", "leaflets (%)"))
+    print("%-9s %-9s %8s %6s %6s %8s %8s %10s %7s %13s%s" % ("run", "region", "area", "n_up", "n_lo", "rho_up", "rho_lo", "up-lo (%)", "se (%)", "leaflets (%)",
+                                                        "  strain up/lo (%)  stress (mN/m)" if ref else ""))
     for name, r in results.items():
         for region in REGIONS:
             if region not in r:
                 continue
             g = r[region]
-            print("%-9s %-9s %8.0f %6.0f %6.0f %8.4f %8.4f %+10.2f %7.2f %13s" % (
+            extra = "  %+6.2f / %+6.2f  %+12.2f" % (100 * g["strain_upper"], 100 * g["strain_lower"], g["stress"]) if ref else ""
+            print("%-9s %-9s %8.0f %6.0f %6.0f %8.4f %8.4f %+10.2f %7.2f %13s%s" % (
                 name, region, g["area"], g["upper"]["n"], g["lower"]["n"], g["upper"]["density"], g["lower"]["density"],
-                g["diff"], g["diff_se"], "%+.2f" % r["mempro_leaflets_diff"] if region == "bulk" and r["mempro_leaflets_diff"] is not None else ""))
+                g["diff"], g["diff_se"], "%+.2f" % r["mempro_leaflets_diff"] if region == "bulk" and r["mempro_leaflets_diff"] is not None else "", extra))
     if any(len(v) > 1 for v in dirs.values()):
         print("\nAcross replicates (mean, and standard error from the spread between replicates):")
-        print("%-6s %-9s %4s %10s %7s %13s" % ("method", "region", "n", "up-lo (%)", "se (%)", "leaflets (%)"))
-        for method in METHODS:
+        print("%-7s %-9s %4s %10s %7s %13s%s" % ("method", "region", "n", "up-lo (%)", "se (%)", "leaflets (%)", "  stress (mN/m)  se" if ref else ""))
+        for method in METHODS + ("control",):
             names = [n for n, _ in dirs.get(method, [])]
             for region in REGIONS:
                 vals = [results[n][region]["diff"] for n in names if region in results[n]]
@@ -474,11 +586,18 @@ def cmd_analyse(args):
                     continue
                 strain = [results[n]["mempro_leaflets_diff"] for n in names if results[n]["mempro_leaflets_diff"] is not None]
                 se = np.std(vals, ddof=1) / np.sqrt(len(vals)) if len(vals) > 1 else float("nan")
-                print("%-6s %-9s %4d %+10.2f %7.2f %13s" % (method, region, len(vals), np.mean(vals), se,
-                                                           "%+.2f" % np.mean(strain) if region == "bulk" and strain else ""))
+                extra = ""
+                if ref:
+                    st = [results[n][region]["stress"] for n in names if region in results[n]]
+                    extra = "  %+13.2f %5.2f" % (np.mean(st), np.std(st, ddof=1) / np.sqrt(len(st)) if len(st) > 1 else float("nan"))
+                print("%-7s %-9s %4d %+10.2f %7.2f %13s%s" % (method, region, len(vals), np.mean(vals), se,
+                                                            "%+.2f" % np.mean(strain) if region == "bulk" and strain else "", extra))
     print("\nbulk: the largest connected region beyond the cut-off; enclosed: regions the protein encloses there (e.g. inside a")
     print("ring), which cannot exchange lipids with the bulk in a short run. area: nm^2; n: lipids in the region; rho: per nm^2.")
-    print("up-lo: difference in area-weighted packing between the leaflets (0 = matched; target within 1-2%).")
+    print("up-lo: difference in area-weighted packing between the leaflets (0 = equal packing).")
+    if ref:
+        print("strain: each leaflet's area per lipid relative to the protein-free reference; stress: estimated differential")
+        print("stress, upper minus lower leaflet tension, (K_A/2)(strain_up - strain_lo); 0 = zero differential stress.")
     print("se: per run, from 1 ns blocks (nan with less than 2 ns analysed); across replicates, from their spread.")
     print("leaflets: mempro-leaflets differential strain over the same frames (whole membrane).")
 
@@ -512,6 +631,16 @@ def main(argv=None):
     b.add_argument("--insane", default=None, help="Insane4MemPrO.py (default: the installed copy)")
     b.set_defaults(func=cmd_build)
 
+    c = sub.add_parser("control", help="Build protein-free bilayers (the reference for analyse --reference)")
+    c.add_argument("dir", help="Directory for the controls (created)")
+    c.add_argument("--ff", default=os.environ.get("MARTINI3_FF"), required=os.environ.get("MARTINI3_FF") is None,
+                   help="Directory with the Martini 3 itp files (or $MARTINI3_FF)")
+    c.add_argument("--lipids", default="-l POPE:8 -l POPG:2", help="Insane4MemPrO lipid options (Default: '-l POPE:8 -l POPG:2')")
+    c.add_argument("--box", default="15,15,12", help="Box x,y,z (nm) (Default: 15,15,12)")
+    c.add_argument("--reps", type=int, default=1, help="Independent builds (Default: 1)")
+    c.add_argument("--insane", default=None, help="Insane4MemPrO.py (default: the installed copy)")
+    c.set_defaults(func=cmd_control)
+
     r = sub.add_parser("run", help="Minimise, equilibrate and run NPT for one built system")
     r.add_argument("dir", help="Built system directory (e.g. runs/QmcA/map)")
     r.add_argument("--ns", type=float, default=5.0, help="Production length (ns) (Default: 5)")
@@ -530,6 +659,8 @@ def main(argv=None):
     a.add_argument("--slab", type=float, default=2.5, help="Protein beads within this distance of the midplane (nm) count as in the membrane (Default: 2.5)")
     a.add_argument("--frame-ns", type=float, default=0.1, help="Time between frames (ns), for the error estimate (Default: 0.1)")
     a.add_argument("--gmx", default=os.environ.get("GMX", "gmx"), help="GROMACS executable (or $GMX)")
+    a.add_argument("--reference", help="Directory with protein-free control runs (from control): adds each leaflet's strain and "
+                   "the estimated differential stress, and the control's own up-lo as a baseline")
     a.set_defaults(func=cmd_analyse)
 
     args = p.parse_args(argv)
