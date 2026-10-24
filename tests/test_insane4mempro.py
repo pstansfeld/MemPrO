@@ -230,6 +230,26 @@ class TestLeafletCheck(unittest.TestCase):
         _, _, gro = build(["-x", "15", "-y", "15", "-z", "10", "-l", "POPE:7", "-l", "POPG:2", "-l", "CARD:1", "-asym", "30"])
         self.assertIn("-asym -30", self.run_check(gro))
 
+    def test_lipid_out_of_the_membrane(self):
+        # A lipid pulled out into the water must not become a leaflet (or a membrane) of its own
+        _, _, gro = build(["-x", "15", "-y", "15", "-z", "20", "-l", "POPE"])
+        with open(gro) as f:
+            lines = f.read().splitlines()
+        atoms = lines[2:-1]
+        resids = sorted({l[0:5] for l in atoms if l[5:10].strip() == "POPE"}, key=int)
+        height = {r: max(float(l[36:44]) for l in atoms if l[0:5] == r) for r in resids}
+        # The highest lipid 4.6 nm further up (a gap larger than between the leaflets' heads), the lowest 8 nm down
+        # (beyond the gap that separates membranes)
+        moved = {max(resids, key=height.get): 4.6, min(resids, key=height.get): -8.0}
+        for i, l in enumerate(atoms):
+            if l[0:5] in moved and l[5:10].strip() == "POPE":
+                atoms[i] = "%s%8.3f%s" % (l[:36], float(l[36:44]) + moved[l[0:5]], l[44:])
+        with open(gro, "w") as f:
+            f.write("\n".join(lines[:2] + atoms + lines[-1:]) + "\n")
+        out = self.run_check(gro)
+        self.assertNotIn("Membrane 2", out)
+        self.assertIn("no change suggested", out)
+
 
 if __name__ == "__main__":
     unittest.main()

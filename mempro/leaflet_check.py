@@ -96,6 +96,48 @@ def footprint(points_xy, box_xy, radius, spacing=0.1):
     return (d < radius).mean() * box_xy[0] * box_xy[1]
 
 
+def leaflet_split(z, min_fraction=0.2):
+    """
+    Where to split sorted head heights z into two leaflets: the index of the last lipid of the lower leaflet. This is
+    the largest gap in height that leaves at least min_fraction of the lipids on each side, so that a lipid pulled out
+    of the membrane joins the nearest leaflet instead of becoming a leaflet of its own.
+    """
+    n = len(z)
+    if n < 2:
+        return 0
+    gaps = np.diff(z)
+    below = np.arange(1, n)
+    ok = (below >= min_fraction * n) & (n - below >= min_fraction * n)
+    if ok.any():
+        gaps = np.where(ok, gaps, -np.inf)
+    return int(np.argmax(gaps))
+
+
+def membrane_groups(order, z, gap=5.5, min_lipids=10, min_fraction=0.02):
+    """
+    Lipids (indices sorted by head height z) split into membranes at gaps over 'gap' nm. Groups too small to be a
+    membrane (lipids that have left it) join the nearest neighbouring group.
+    """
+    groups = np.split(order, np.where(np.diff(z[order]) > gap)[0] + 1)
+    small = max(min_lipids, min_fraction * len(order))
+    while len(groups) > 1:
+        sizes = [len(g) for g in groups]
+        k = int(np.argmin(sizes))
+        if sizes[k] >= small:
+            break
+        if k == 0:
+            j = 1
+        elif k == len(groups) - 1:
+            j = k - 1
+        else:
+            below = z[groups[k][0]] - z[groups[k - 1][-1]]
+            above = z[groups[k + 1][0]] - z[groups[k][-1]]
+            j = k - 1 if below <= above else k + 1
+        lo, hi = min(j, k), max(j, k)
+        groups[lo:hi + 1] = [np.concatenate([groups[lo], groups[hi]])]
+    return groups
+
+
 def phosphate_z(mols, xyz, atomname):
     """z of each lipid's first PO bead (its phosphate), otherwise its first bead."""
     z = []
@@ -121,12 +163,11 @@ def analyse_frame(frame, areas, radius, lipid_names=None, fp=None):
     # and leaflets at the largest gap within a membrane (this also works for LPS, whose last beads are sugars)
     heads = np.array([xyz[m[0]] for m in lipids])
     order = np.argsort(heads[:, 2])
-    breaks = np.where(np.diff(heads[order, 2]) > 5.5)[0]
-    groups = np.split(order, breaks + 1)
+    groups = membrane_groups(order, heads[:, 2])
     results = []
     for g in groups:
         hz = heads[g, 2]
-        split = np.argmax(np.diff(hz)) if len(g) > 1 else 0
+        split = leaflet_split(hz)
         lower, upper = g[:split + 1], g[split + 1:]
         z_up = np.mean(heads[upper, 2]) if len(upper) else hz.max()
         z_lo = np.mean(heads[lower, 2]) if len(lower) else hz.min()
