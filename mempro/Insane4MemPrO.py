@@ -302,6 +302,15 @@ lipidsa.update({      #  1    2   3   4   5   6   7   8   9  10  11  12  13  14 
     "OANT": (moltype, " PO1  GM1 GM2 GM3 GM4 GM5 GM6 PO2 GL1 GL2 C1A C2A C3A C1B C2B C3B  GL3 GL4 C1C C2C C3C C1D C2D C3D GL5 GL6 C1E C2E GL7 GL8 C1F C2F SO1 SO2 SO3 SO4 SO5 SO6 SO7 SO8 SO9 S10 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28 S29 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 O40 O41 O42 O43 O44 O45 O46 O47 O48 O49 O50 O51 O52 O53 O54 O55 O56 O57 O58 O59 O60 O61 O62 O63 O64 O65 O66 O67 O68 O69 O70 O71 O72 O73 O74 O75 O76 O77 O78 O79 O80 O81 O82 O83 O84 O85 O86 O87 O88 O89 O90 O91 O92 O93 O94 O95 O96 O97 O98 O99"), 
 })
 
+# Prototopology for Martini 3 lipid A (Vaiwala; bead names B0-B36 as in its LIPA.itp, molecule renamed LPA3).
+# Two glucosamine rings (B1-B3 and B5-B7, virtual-site centres B4 and B8) each carry a phosphate (B0, B9);
+# the six acyl chains hang below them in a 3 x 2 pattern 0.5 nm apart. x, y in 0.25 nm units, z in -bd steps.
+moltype = "LPA3M3"
+lipidsx[moltype] = (0, 0, 1, 1, 0.7, 3, 4, 3, 3.3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4)
+lipidsy[moltype] = (1, 1, 2, 0, 1, 0, 1.5, 2, 1.2, 1.5, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 2, 2, 2, 1, 1, 0, 0, 0, 0, 2, 2, 2)
+lipidsz[moltype] = (7, 6, 6, 6, 6, 6, 6, 6, 6, 7, 5, 4, 3, 2, 1, 5, 4, 3, 2, 1, 5, 4, 3, 2, 1, 3, 2, 1, 5, 4, 3, 2, 1, 0, 3, 2, 1)
+lipidsa.update({"LPA3": (moltype, "B0 B1 B2 B3 B4 B5 B6 B7 B8 B9 B10 B11 B12 B13 B14 B15 B16 B17 B18 B19 B20 B21 B22 B23 B24 B25 B26 B27 B28 B29 B30 B31 B32 B33 B34 B35 B36")})
+
 
 moltype = "LPS2"
 lipidsx[moltype] = (	 0,   0,  1,  0,  0,  0,  0,  1,  2,  2,  1,  2,  1,  1,  0,  0,  0,  0,  1,  1,  1,   1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  3,  2,  2,  2,  3,  3,  3,  1,  2,  1,  0,  0,  0, 0,  0,   0,  1,  0,  0,  1,  2,  2,  2,  2,  0,  1,  0,  0,  1,  1,  1,  1,  2,  1,  1,  1,  0,  0,  0  )
@@ -404,7 +413,7 @@ lipidsa.update({	# 1	2   3   4   5   6   7   8   9   10  11  12  13   14  15  16
 
 
 # Lists for automatic charge determination
-charges = {"HPPA":-1,"4HPA":-1,"UDP2":-2,"UDP1":-1, "GLYP":-1, "GLYM":-1, "ARG":1, "LYS":1, "ASP":-1, "GLU":-1, "DOPG":-1, "POPG":-1, "DOPS":-1, "POPS":-1, "DSSQ":-1, "KPG":+1, "LIPA":-4, "PGIN":-1, "REMP":-6, "RAMP":-10, "OANT":-10, "CARD":-2, "A2P2":-1, "APM2":-1, "APM6":-1, "LIP2":-4, "LIP4":-6, "LIP6":-8, "LIP8":-10, "LI10":-12, "LI12":-14, "LI14":-16, "LI16":-18, "LI18":-20, "LI20":-22, "LI22":-24,"UPEP":-1,"SPEP":-2,"UUPEP":-1,"KLA":-6,"TOCL":-2,"TMCL":-2,"CDL0":0,"CDL1":-1,"CDL2":-2,"DOTAP":1,"DO2B":-1,"DO3B":-1}
+charges = {"HPPA":-1,"4HPA":-1,"UDP2":-2,"UDP1":-1, "GLYP":-1, "GLYM":-1, "ARG":1, "LYS":1, "ASP":-1, "GLU":-1, "DOPG":-1, "POPG":-1, "DOPS":-1, "POPS":-1, "DSSQ":-1, "KPG":+1, "LIPA":-4, "LPA3":-4, "PGIN":-1, "REMP":-6, "RAMP":-10, "OANT":-10, "CARD":-2, "A2P2":-1, "APM2":-1, "APM6":-1, "LIP2":-4, "LIP4":-6, "LIP6":-8, "LIP8":-10, "LI10":-12, "LI12":-14, "LI14":-16, "LI16":-18, "LI18":-20, "LI20":-22, "LI22":-24,"UPEP":-1,"SPEP":-2,"UUPEP":-1,"KLA":-6,"TOCL":-2,"TMCL":-2,"CDL0":0,"CDL1":-1,"CDL2":-2,"DOTAP":1,"DO2B":-1,"DO3B":-1}
 ion_charges = {"NA" :1,"CL":-1,"CA":2}
 
 # BEGIN LIPID AREAS (also read by leaflet_check.py; keep this block self-contained, using only numpy)
@@ -451,7 +460,7 @@ lipid_apl.update({
 	"TOCL":1.30, "TMCL":1.16, "CARD":1.30, "CDL0":1.30, "CDL1":1.30, "CDL2":1.30, "CL4P":1.30, "CL4M":1.30,
 	# Lipid A: Snyder et al. 1999 Biochemistry; Re-LPS (Kdo2-lipid A): CHARMM36m, Brandner et al. 2024 JCTC;
 	# smooth LPS: CHARMM36, Park et al. 2023 JCIM and Martini 3 LPS 2026 JPCB; Ra-LPS taken between Re and smooth
-	"LIPA":1.56, "KLA":1.67, "REMP":1.67, "RAMP":1.80, "OANT":1.85,
+	"LIPA":1.56, "LPA3":1.56, "KLA":1.67, "REMP":1.67, "RAMP":1.80, "OANT":1.85,
 	# Phosphoinositides (Martini 3 naming: 1/4/5 = PI(3)P/PI(4)P/PI(5)P, 2/6/7 = PI(3,4)P2/PI(4,5)P2/PI(3,5)P2, 3 = PIP3).
 	# No bilayer experiment exists; values are consensus of monolayer areas at 30 mN/m (Levental et al. 2008 JACS),
 	# CHARMM36/Martini 3 areas at 5% in POPC (Borges-Araujo et al. 2022 JCTC) and Martini 3 lipidome bilayers.
@@ -484,7 +493,7 @@ APL_PLASMALOGEN = 1.05
 APL_TEMP_COEF = 0.0025
 APL_M3_FACTOR = 0.94
 apl_ref_temp = {"DPPC":323.0, "DSPC":333.0, "MSPC":323.0, "SMPC":323.0, "PMPC":323.0, "PSM":318.0, "SSM":328.0, "DUPE":308.0, "POPE":308.0, "SOPE":308.0, "DPPG":323.0, "DSPG":333.0, "SM":318.0}
-apl_fixed = {"LIPA","KLA","REMP","RAMP","OANT","CHL1","CHOL","HOPR","HHOP","HDPT","HBHT"}
+apl_fixed = {"LIPA","LPA3","KLA","REMP","RAMP","OANT","CHL1","CHOL","HOPR","HHOP","HDPT","HBHT"}
 
 def adjust_apls(temp,ff):
 	def adj(name,val,cls=None):
@@ -1116,11 +1125,18 @@ def leaflet_site_area(lips):
 # Assigns lipid types to placed sites (entries x,y,z,dx,dy,dz,path). A lipid taking k sites keeps one site and
 # removes its k-1 nearest unused neighbours. Returns the lipid names, their sites (grouped by type, in the order
 # of lips) and the count of each type.
-def assign_lipids(sites,lips,use_sites,box_xy):
+def assign_lipids(sites,lips,use_sites,box_xy,energy=None):
 	names, nums, apls, ks = lipid_sites(lips)
 	if not use_sites:
 		ks = [1]*len(names)
 	nsites = len(sites)
+	#Sites come grouped (grid order, then sites added near the protein); types are taken in turn, so assign them
+	#in random order or the last type would collect the sites added near the protein
+	order = np.random.permutation(nsites)
+	sites = [sites[i] for i in order]
+	if energy is not None:
+		energy_sites = energy
+		energy = lambda nm,cn: energy_sites(nm,cn)[order]
 	exact = [nsites*c/float(sum(k*n for k,n in zip(ks,nums))) for c in nums]
 	counts = split_counts(int(sum(exact)),nums)
 	#Rounding can leave the sites slightly over- or under-used; correct with the types furthest from their share
@@ -1140,9 +1156,23 @@ def assign_lipids(sites,lips,use_sites,box_xy):
 		zspan = np.ptp(xyz[:,2])*2+10
 		xyz[:,2] -= xyz[:,2].min()
 		tree = cKDTree(xyz,boxsize=[box_xy[0],box_xy[1],zspan])
+	#With -sort, each type's sites are drawn with probability from sort_probabilities instead of in site order
+	prob = sort_probabilities(energy(names,counts),[k*c for k,c in zip(ks,counts)]) if energy is not None and nsites > 0 else None
 	nxt = 0
 	for j in sorted(range(len(names)),key=lambda j: -ks[j]):
+		if prob is not None and ks[j] == 1 and j != max([i for i in range(len(names)) if ks[i] == 1]):
+			#Single-site types except the last draw their sites at once; the last takes what is left
+			free = np.nonzero(~used)[0]
+			w = prob[free,j]+1e-12
+			take = free[np.random.choice(len(free),size=min(counts[j],len(free)),replace=False,p=w/w.sum())]
+			used[take] = True
+			chosen[j].extend([sites[t] for t in sorted(take)])
+			continue
 		for _ in range(counts[j]):
+			if prob is not None:
+				free = np.nonzero(~used)[0]
+				w = prob[free,j]+1e-12
+				nxt = free[np.random.choice(len(free),p=w/w.sum())] if ks[j] > 1 else free[0]
 			while used[nxt]:
 				nxt += 1
 			used[nxt] = True
@@ -1175,6 +1205,94 @@ def split_counts(n,nums):
 	for j in sorted(range(len(nums)),key=lambda k: exact[k]-counts[k],reverse=True)[:n-sum(counts)]:
 		counts[j] += 1
 	return counts
+
+# BEGIN SORT
+# Lipid sorting around the protein (-sort model; docs/lipid-sorting-design.md). Each site gets an energy (kT) per
+# lipid type from three terms, and types are drawn per site with probability proportional to exp(-energy), scaled per
+# type so that the leaflet composition is kept exactly:
+#   mismatch   (K_A/2) a (u - d)^2: u = local strain of the leaflet thickness (from -def), d = the type's preferred
+#              phosphate depth relative to the leaflet's mean, weighted by the number of each type (SORT_DEPTH)
+#   curvature  -kappa_m a c0 J: J = monolayer curvature of the head surface (negative where it curves around the
+#              water, as in an inverted hexagonal phase), c0 = spontaneous curvature (SORT_C0)
+#   charge     q e phi: phi = Debye-Hueckel potential of the protein's charged side chains at the head
+# Parameters are for Martini 3: K_A and SORT_DEPTH from protein-free Martini 3 lipidome bilayers at 310 K,
+# kappa_m = half a typical Martini bilayer bending modulus, epsilon_r = 15.
+SORT_KA = 60.0          # Area compressibility modulus (kT/nm^2): POPE 64, POPG 47, POPE:TOCL 80:20 59 (~0.25 N/m)
+SORT_KAPPA_M = 10.0     # Monolayer bending modulus (kT)
+SORT_EPS_R = 15.0       # Relative dielectric constant (Martini 3)
+SORT_RMIN = 0.4         # Closest charge-charge distance in the potential (nm)
+# Phosphate depth from the midplane (nm) in protein-free bilayers, 200 ns at 310 K, lipidome v2 (TOCL from POPE:TOCL
+# 80:20, scaled by its depth relative to POPE there); types not listed get the leaflet mean (no mismatch)
+SORT_DEPTH = {"POPE":2.135, "POPG":2.000, "TOCL":2.145}
+# Monolayer spontaneous curvature (1/nm); literature estimates (types not listed: 0)
+SORT_C0 = {"POPE":-0.30, "DOPE":-0.35, "DPPE":-0.30, "DLPE":-0.30, "SOPE":-0.30,
+	"POPG":0.0, "DOPG":0.0, "DPPG":0.0, "DLPG":0.0,
+	"TOCL":-0.60, "TMCL":-0.60, "CDL0":-0.60, "CDL1":-0.60, "CDL2":-0.60, "CARD":-0.60}
+# Charged side-chain sites: (residue, atom or bead name, charge); Martini beads and atomistic atoms
+SORT_CHARGED = {("LYS","SC2"):1, ("ARG","SC2"):1, ("ASP","SC1"):-1, ("GLU","SC1"):-1,
+	("LYS","NZ"):1, ("ARG","CZ"):1, ("ASP","CG"):-1, ("GLU","CD"):-1}
+SORT_TERMS = ("mismatch","curvature","charge")
+
+def sort_bjerrum(temp,eps=SORT_EPS_R):
+	"""Bjerrum length (nm)."""
+	return 16710.0/(eps*temp)
+
+def sort_debye(conc,temp,eps=SORT_EPS_R):
+	"""Debye screening length (nm) of a 1:1 salt at conc (mol/l)."""
+	return 1.0/np.sqrt(8*np.pi*sort_bjerrum(temp,eps)*max(conc,1e-6)*0.6022)
+
+def sort_charges(atomnames,resnames,coords):
+	"""Positions and charges of the protein's charged side chains."""
+	sel = [(i,SORT_CHARGED[(r.strip(),a.strip())]) for i,(a,r) in enumerate(zip(atomnames,resnames)) if (r.strip(),a.strip()) in SORT_CHARGED]
+	if not sel:
+		return np.zeros((0,3)),np.zeros(0)
+	return np.asarray(coords)[[i for i,_ in sel]],np.array([q for _,q in sel],dtype=float)
+
+def sort_potential(points,qxyz,q,box_xy,lb,debye,cut=3.0):
+	"""Debye-Hueckel potential (kT/e) of charges q at qxyz, at points (periodic in x and y)."""
+	phi = np.zeros(len(points))
+	if len(q) == 0 or len(points) == 0:
+		return phi
+	d = points[:,None,:]-qxyz[None,:,:]
+	d[:,:,:2] -= np.round(d[:,:,:2]/np.asarray(box_xy))*np.asarray(box_xy)
+	r = np.maximum(np.linalg.norm(d,axis=2),SORT_RMIN)
+	return np.sum(np.where(r < cut,q[None,:]*lb*np.exp(-r/debye)/r,0.0),axis=1)
+
+def sort_energies(names,strain,curv,phi,terms=SORT_TERMS,counts=None):
+	"""Energy (kT) of each type (columns) at each site (rows); counts weight the leaflet's mean depth."""
+	from_table = [get_apl(n) for n in names]
+	depth = np.array([SORT_DEPTH.get(n,np.nan) for n in names],dtype=float)
+	known = ~np.isnan(depth)
+	rel = np.zeros(len(names))
+	if known.any():
+		w = np.ones(len(names)) if counts is None else np.asarray(counts,dtype=float)
+		rel[known] = depth[known]/np.average(depth[known],weights=w[known]+1e-12)-1
+	area = np.array(from_table)
+	c0 = np.array([SORT_C0.get(n,0.0) for n in names])
+	charge = np.array([charges.get(n,0) for n in names],dtype=float)
+	E = np.zeros((len(strain),len(names)))
+	if "mismatch" in terms:
+		E += 0.5*SORT_KA*area[None,:]*(np.asarray(strain)[:,None]-rel[None,:])**2
+	if "curvature" in terms:
+		E += -SORT_KAPPA_M*area[None,:]*c0[None,:]*np.asarray(curv)[:,None]
+	if "charge" in terms:
+		E += charge[None,:]*np.asarray(phi)[:,None]
+	return E
+
+def sort_probabilities(E,target,iters=1000,tol=1e-6):
+	"""Per-site type probabilities from energies E (sites x types): rows sum to 1 and column j sums to target[j]
+	(iterative proportional fitting), so the expected count of each type is exact."""
+	target = np.asarray(target,dtype=float)
+	W = np.exp(-(E-E.min(axis=1,keepdims=True)))*(target[None,:] > 0)
+	target = target*len(E)/max(target.sum(),1e-12)
+	P = W/np.maximum(W.sum(axis=1,keepdims=True),1e-300)
+	for _ in range(iters):
+		P *= (target/np.maximum(P.sum(axis=0),1e-300))[None,:]
+		P /= np.maximum(P.sum(axis=1,keepdims=True),1e-300)
+		if np.max(np.abs(P.sum(axis=0)-target)) < tol*max(1.0,target.max()):
+			break
+	return P
+# END SORT
 
 ## MIJN EIGEN ROUTINE ##
 
@@ -3313,6 +3431,9 @@ Protein related options. -fudge gives the exclusion radius around the protein.
 	("-rotate", Option(str,		 1,		None, "Rotate protein (random|princ|angle(float))")),
 	("-fudge",  Option(float,	   1,		 0.3, "Fudge factor for allowing lipid-protein overlap. Recommended value when using -def is 0.15")),
 	("-ring",   Option(bool,		0,		None, "Put lipids inside the protein (the same as -enclosed lipids)")),
+	("-sort",   Option(str,		1,		"none", "Lipid types around the protein: none (each leaflet's composition spread uniformly) or model (types drawn per site from mismatch with the local thickness under -def, curvature of the leaflet and the protein's charges, keeping each leaflet's composition; flat membranes; docs/lipid-sorting-design.md)")),
+	("-sort_terms",   Option(str,		1,		"mismatch,curvature,charge", "Terms of -sort model (comma-separated, from mismatch, curvature and charge)")),
+	("-sort_debye",   Option(float,		1,		None, "Debye screening length (nm) for -sort model (default: Debye-Hueckel for the first -ion_conc with epsilon_r 15)")),
 	("-enclosed",   Option(str,		1,		None, "Lipids in regions the protein encloses in the membrane: auto (where there is room for a lipid at every depth and the lining is hydrophobic, as in a c-ring; flat membranes), lipids, or empty (Default: auto, or lipids with -ring)")),
 	("-dm",	 Option(float,	   1,		None, "Shift protein with respect to membrane")),
 	"""
@@ -4372,6 +4493,14 @@ if lipL:
 	prot_coords_plain = np.array(protein.coord).reshape(-1,3)
 	prot_radii = fp_bead_radii([a[0] for a in protein.atoms],[a[1] for a in protein.atoms])
 	prot_lining = ([a[0] for a in protein.atoms],[a[1] for a in protein.atoms],fp_residues([a[2] for a in protein.atoms],[a[3] for a in protein.atoms]))
+	sort_mode = options["-sort"].value
+	sort_terms = tuple(t.strip() for t in options["-sort_terms"].value.split(",") if t.strip())
+	if sort_mode not in ("none","model") or any(t not in SORT_TERMS for t in sort_terms):
+		print("ERROR: -sort must be none or model, and -sort_terms a comma-separated list from mismatch, curvature and charge")
+		exit()
+	sort_q_xyz,sort_q = sort_charges(prot_lining[0],prot_lining[1],prot_coords_plain)
+	if sort_mode == "model":
+		print("-sort model: %d charged side chains, terms %s"%(len(sort_q),", ".join(sort_terms)))
 	enclosed_mode = options["-enclosed"].value or ("lipids" if any(prot_rings) else "auto")
 	if enclosed_mode not in ("auto","lipids","empty"):
 		print("ERROR: -enclosed must be auto, lipids or empty")
@@ -4466,13 +4595,56 @@ if lipL:
 			xind,yind = np.clip(xind,0,xlin_def.shape[0]-1),np.clip(yind,0,ylin_def.shape[0]-1)
 			mid = mid+np.where(inside,membrane_pos[xind,yind,0]/10.0,0.0)
 			scale = np.where(inside,membrane_pos[xind,yind,1]/membrane_pos[0,0,1],1.0)
-		if mem_thick[gi] is not None:
-			half_up = half_lo = mem_thick[gi]/2
-			source = "-mt"
-		else:
-			half_up,half_lo = get_phosphate_depth(lipUs[gi]),get_phosphate_depth(lipLs[gi])
-			source = "lipid lengths"
+		half_up,half_lo,source = leaflet_half(gi)
 		return box_xy,mid,half_up*scale,half_lo*scale,"%.2f/-%.2f nm (from %s)"%(half_up,half_lo,source)
+
+	#Phosphate depths of flat membrane gi before any -def deformation
+	def leaflet_half(gi):
+		if mem_thick[gi] is not None:
+			return mem_thick[gi]/2,mem_thick[gi]/2,"-mt"
+		return get_phosphate_depth(lipUs[gi]),get_phosphate_depth(lipLs[gi]),"lipid lengths"
+
+	#-sort model: per-site energies for assign_lipids from the leaflet's thickness strain and curvature (flat membranes,
+	#with -def) and the protein's charges (docs/lipid-sorting-design.md)
+	def sort_energy(gi,sites,leaflet):
+		if sort_mode == "none" or len(sites) == 0:
+			return None
+		if not membrane_flat(gi):
+			print("-sort model is for flat membranes filling the box; lipids in membrane %d are not sorted"%(gi+1))
+			return None
+		box_xy,mid,half_up,half_lo,_ = membrane_geometry(gi)
+		nx,ny,px,py = fp_grid(box_xy)
+		flat = leaflet_half(gi)[0 if leaflet > 0 else 1]
+		half = np.broadcast_to(half_up if leaflet > 0 else half_lo,(nx,ny))
+		head = np.broadcast_to(mid,(nx,ny))+leaflet*half
+		#Monolayer curvature of the head surface, smoothed over 0.5 nm; negative where it curves around the water
+		hs = ndimage.gaussian_filter(head,(0.5/px,0.5/py),mode="wrap")
+		lap = (np.roll(hs,1,0)+np.roll(hs,-1,0)-2*hs)/px**2+(np.roll(hs,1,1)+np.roll(hs,-1,1)-2*hs)/py**2
+		curv = -leaflet*lap
+		xyz = np.array([s_[:3] for s_ in sites],dtype=float)
+		ix = np.floor((xyz[:,0]%box_xy[0])/px).astype(int)%nx
+		iy = np.floor((xyz[:,1]%box_xy[1])/py).astype(int)%ny
+		strain = half[ix,iy]/flat-1
+		temp = options["-temp"].value or 310.0
+		lb = sort_bjerrum(temp)
+		debye = options["-sort_debye"].value or sort_debye(float(options["-ion_conc"].value.split(",")[0]),temp)
+		phi = sort_potential(xyz,sort_q_xyz,sort_q,box_xy,lb,debye)
+		return lambda names,counts: sort_energies(names,strain,curv[ix,iy],phi,sort_terms,counts)
+
+	#Fraction of each lipid type with its head within 1 nm (x,y) of protein in the membrane, against its overall fraction
+	def sort_report(gi,label,names,sites):
+		if sort_mode == "none" or len(sites) == 0 or len(prot_coords_plain) == 0:
+			return
+		mid = zdist*(gi*2-1)
+		core = prot_coords_plain[np.abs(prot_coords_plain[:,2]-mid) < 2.5]
+		if len(core) == 0:
+			return
+		xyz = np.array([s_[:3] for s_ in sites],dtype=float)
+		d,_ = cKDTree(core[:,:2]%[pbcx,pbcy],boxsize=[pbcx,pbcy]).query(xyz[:,:2]%[pbcx,pbcy])
+		near = d < 1.0
+		names = np.array(names)
+		parts = ["%s %.0f%% (%.0f%% overall)"%(n,100*np.mean(names[near] == n),100*np.mean(names == n)) for n in dict.fromkeys(names)]
+		print("  -sort model, %s leaflet, %d lipids within 1 nm of the protein: %s"%(label,near.sum(),", ".join(parts)))
 
 	#Footprint maps, and which enclosed regions get lipids (printed)
 	def membrane_maps(gi):
@@ -4663,13 +4835,15 @@ if lipL:
 
 			# Upper leaflet (+1)
 			lipU_new, numU = list(zip(*[ parse_mol(i) for i in lipUs[gi] ]))
-			lip_up, upper_tmp, num_up = assign_lipids(upper_tmp,lipUs[gi],[sites_u,sites_uo][gi],(pbcx,pbcy))
+			lip_up, upper_tmp, num_up = assign_lipids(upper_tmp,lipUs[gi],[sites_u,sites_uo][gi],(pbcx,pbcy),energy=sort_energy(gi,upper_tmp,1))
+			sort_report(gi,"upper",lip_up,upper_tmp)
 
 			leaf_up	= ( 1,list(zip(lip_up,upper_tmp)))
 			
 			# Lower leaflet (-1)
 			lipL_new, numL = list(zip(*[ parse_mol(i) for i in lipLs[gi] ]))
-			lip_lo, lower_tmp, num_lo = assign_lipids(lower_tmp,lipLs[gi],[sites_l,sites_lo][gi],(pbcx,pbcy))
+			lip_lo, lower_tmp, num_lo = assign_lipids(lower_tmp,lipLs[gi],[sites_l,sites_lo][gi],(pbcx,pbcy),energy=sort_energy(gi,lower_tmp,-1))
+			sort_report(gi,"lower",lip_lo,lower_tmp)
 			print("; %d lipids in upper leaflet, %d lipids in lower leaflet"%(len(upper_tmp),len(lower_tmp)),file=sys.stderr )
 			
 			#lower_tmp = LocBias(lower_tmp,num_lo,lipL_new,10000,lipL_loc,loc_grid[0])
