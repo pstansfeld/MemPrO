@@ -530,7 +530,9 @@ def get_apl(name):
 # so the covered region stops at the protein's own bead radius. The hydrophobic core is roughly incompressible, so
 # lipids fill the core volume the protein leaves free: a pixel's available fraction is the fraction of core slices in
 # which it is covered, or 0 where the protein occupies the headgroup layer. Free area = sum of fraction x pixel area.
-# Regions lipids cannot reach in any core slice of either leaflet (the inside of a closed barrel) are blocked unless
+# A pixel is reachable in a leaflet if it is connected to the bulk membrane in at least FP_REACH_FRACTION of the leaflet's
+# core slices where it is free; a barrel open to the bulk at a single depth (e.g. a gap at the end of a porin barrel)
+# stays enclosed. Regions that are not reachable (the inside of a closed barrel) are blocked unless
 # enclosed_free (-enclosed lipids, or -ring). With enclosed_free="auto" (-enclosed auto) each such region is judged in
 # each leaflet: it gets lipids if its narrowest core slice still has FP_ENCLOSED_MIN_AREA free (room for a lipid at every
 # depth) and at least FP_ENCLOSED_MIN_HYDROPHOBIC of the residues lining it are hydrophobic (as inside a c-ring, unlike
@@ -554,6 +556,7 @@ FP_BEAD_SIZE = {("GLY","BB"):"S",("ALA","BB"):"S",("PRO","BB"):"S",("ALA","SC1")
 	("ARG","SC1"):"S",("ARG","SC2"):"S",("PHE","SC1"):"S",("PHE","SC2"):"T",("PHE","SC3"):"T",("HIS","SC1"):"T",("HIS","SC2"):"T",
 	("HIS","SC3"):"T",("TYR","SC1"):"T",("TYR","SC2"):"T",("TYR","SC3"):"T",("TYR","SC4"):"T",("TRP","SC1"):"T",("TRP","SC2"):"T",
 	("TRP","SC3"):"T",("TRP","SC4"):"T",("TRP","SC5"):"T"}
+FP_REACH_FRACTION = 0.5
 FP_ENCLOSED_MIN_AREA = 1.0
 FP_ENCLOSED_MIN_HYDROPHOBIC = 0.6
 FP_HYDROPHOBIC = {"ALA","VAL","LEU","ILE","MET","PHE","TRP","CYS","PRO"}
@@ -679,13 +682,14 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 	free = {name:([free_at(z) for z in core],[free_at(z) for z in heads]) for name,(core,heads) in slices.items()}
 	enclosed = []
 	if enclosed_free is not True:
-		reachable = np.zeros(shape,dtype=bool)
 		anywhere = np.zeros(shape,dtype=bool)
-		for core,_ in free.values():
-			for f in core:
-				reachable |= fp_main_component(f)
-				anywhere |= f
-		allowed = {name:reachable.copy() for name in free}
+		allowed = {}
+		for name,(core,_) in free.items():
+			nfree = np.sum(core,axis=0)
+			nmain = np.sum([fp_main_component(f) for f in core],axis=0)
+			allowed[name] = (nmain > 0)&(nmain >= FP_REACH_FRACTION*nfree)
+			anywhere |= nfree > 0
+		reachable = allowed["upper"]|allowed["lower"]
 		if enclosed_free == "auto":
 			if lining is None:
 				raise ValueError("enclosed_free='auto' needs lining")

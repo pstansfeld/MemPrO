@@ -151,6 +151,17 @@ class TestSyntheticShapes(unittest.TestCase):
         narrow = auto(ring(0.8, 0.3), "LEU")
         self.assertTrue(all(not r["lipids"]["upper"] for r in narrow["enclosed"]))
 
+    def test_barrel_open_at_one_depth_stays_closed(self):
+        # A gap in the wall at the bottom of the lower leaflet only (as at the periplasmic end of OmpF) does not let
+        # lipids into the barrel in either leaflet
+        barrel = ring(1.5, 0.35)
+        angle = np.arctan2(barrel[:, 1] - 5.0, barrel[:, 0] - 5.0)
+        gap = (np.abs(angle) < 0.5) & (barrel[:, 2] < -HALF + 0.5)
+        closed = maps(barrel)
+        leaky = maps(barrel[~gap])
+        for leaf in ("upper", "lower"):
+            self.assertArea(leaky[leaf]["footprint"], closed[leaf]["footprint"], rel=0.05)
+
     def test_open_ring_interior_is_free(self):
         # Gaps between the beads let lipids in (as for the QmcA ring)
         m = maps(ring(4.0, 1.2))
