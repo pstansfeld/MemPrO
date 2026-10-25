@@ -1,6 +1,6 @@
 # Design: per-leaflet protein footprint (`-footprint map`)
 
-Status: implemented as `-footprint map` (2026-10-23), default still `clash`. A first MD validation (2026-10-24) found `map` matches the leaflets as well as `clash` for 4G1U and halves the mismatch for QmcA, but QmcA's lower leaflet is still under-filled; see [MD validation](#md-validation). See [Implementation](#implementation) for the QmcA diagnosis and the choices made where the design left them open.
+Status: implemented as `-footprint map` (2026-10-23), the default since 2026-10-25 (`-footprint clash` remains available). A first MD validation (2026-10-24) found `map` matches the leaflets as well as `clash` for 4G1U and halves the mismatch for QmcA, but QmcA's lower leaflet is still under-filled; see [MD validation](#md-validation). See [Implementation](#implementation) for the QmcA diagnosis and the choices made where the design left them open.
 This is our own design. Do not copy or adapt code from COBY (its approach is an alpha-shape outline per leaflet; this one is not).
 
 ## Problem
@@ -49,7 +49,7 @@ So the footprint depends implicitly on the grid spacing, `-fudge` and whether th
    - The build log reports each leaflet's footprint, free area and N.
    - Optionally write the map (`.npz` or `.png`) for inspection.
 
-Option: `-footprint map|clash` (default `clash`, the current behaviour), so the two methods can be compared before deciding on a default.
+Option: `-footprint map|clash`. The default was `clash` while the two methods were compared and is `map` since 2026-10-25.
 
 ## Validation plan
 

@@ -3276,7 +3276,7 @@ are not specified. Curvature can be specified using -curv.
 	("-temp",	 Option(float,	   1,		None, "Temperature (K) for the built-in phospholipid areas per lipid (default: values at ~303 K)")),
 	("-apl_ff",	 Option(str,	   1,		"exp", "Built-in phospholipid areas per lipid: exp (experimental) or m3 (Martini 3 equilibrium, ~0.94 of experimental)")),
 	("-balance",	 Option(str,	   1,		"off", "Balance the leaflets of each membrane after removing lipids that clash with the protein: off, area (equal total lipid area) or number (equal lipid count)")),
-	("-footprint",	 Option(str,	   1,		"clash", "How lipids are removed around the protein: clash (lipids whose tails cannot be traced past the protein) or map (each leaflet filled to its free area, from a depth-resolved protein footprint; flat membranes only)")),
+	("-footprint",	 Option(str,	   1,		"map", "How lipids are removed around the protein: map (each leaflet filled to its free area, from a depth-resolved protein footprint; flat membranes filling the box, others use clash) or clash (lipids whose tails cannot be traced past the protein)")),
 	("-mt",	 Option(str,	   1,		None, "Membrane thickness (nm) between phosphate planes for -footprint map, as fitted by MemPrO. One value, or two comma separated for the -l/-u and -lo/-uo membranes (default: from the lipid lengths)")),
 	("-fp_map",	 Option(str,	   1,		None, "Write the -footprint map of each leaflet to this .npz file")),
 	("-asym",   Option(int,		 1,		None, "Membrane asymmetry (number of lipids)")),
@@ -4587,7 +4587,7 @@ if lipL:
 		if footprint_mode == "clash" and (options["-ps"].value > 1e-5 or gi == 0) and len(prot_coords_plain):
 			print("-footprint clash: the lipid counts of the leaflets are not set from their free areas, so the leaflets may not be at zero differential stress (see -footprint map)")
 		if footprint_mode == "map" and not use_map and (options["-ps"].value > 1e-5 or gi == 0):
-			print("-footprint map is for flat membranes filling the box; using -footprint clash for membrane %d"%(gi+1))
+			print("Membrane %d is not a flat membrane filling the box, so lipids are removed around the protein with -footprint clash"%(gi+1))
 		if use_map or enclosed_mode == "lipids":
 			prot_coords = prot_coords_plain
 		elif enclosed_mode == "auto" and membrane_flat(gi) and len(prot_coords_plain) and (options["-ps"].value > 1e-5 or gi == 0):
