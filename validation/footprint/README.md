@@ -78,7 +78,7 @@ The controls give the reference area per lipid of each leaflet and the area comp
 | `prepare` | Runs martinize2 on the atomistic model: Martini 3, elastic network (700 kJ mol⁻¹ nm⁻², 0.5–0.9 nm), backbone position restraints, all chains merged into one molecule named `Protein`. Fits onto `--ref` if given. Reads the thickness from MemPrO's `info_rank_N.txt`. | `protein-cg.pdb`, `protein-cg.itp`, `system.json` |
 | `build` | Runs Insane4MemPrO with `-footprint clash` and `-footprint map`, with the same box and lipids (default `-l POPE:8 -l POPG:2`), with ions to neutralise and 0.15 M salt. The box is sized as MemPrO `-bd` does: 4 nm beyond the protein in x and y, 5 nm in z. MemPrO's thickness is passed as `-mt`. Writes the topology and an index for the `PROTEIN LIPID SOL_ION` temperature groups. | `clash/`, `map/` |
 | `run` | Energy minimisation (`mdp/em.mdp`), 0.5 ns NPT at 10 fs with backbone restraints (`mdp/eq.mdp`), then `--ns` ns NPT at 20 fs (`mdp/md.mdp`). Both NPT stages use c-rescale, semi-isotropic, 1 bar, 310 K. | `em/eq/md.*` |
-| `analyse` | Takes the frames after `--skip-ns` (default 1 ns), every 0.1 ns. Assigns lipids to leaflets by phosphate height in the first frame. Counts each leaflet's lipids whose phosphate is more than `--cutoff` (3 nm) from any protein bead within 2.5 nm of the midplane. Also runs `mempro-leaflets` on the same frames. | `results.json` and the table below |
+| `analyse` | Takes the frames after `--skip-ns` (default 1 ns), every 0.1 ns. Assigns lipids to leaflets by phosphate height in the first frame. Counts each leaflet's lipids more than `--cutoff` (3 nm) from any protein bead within 2.5 nm of the midplane, and measures each leaflet's area on its own curved surface (see below). Also runs `mempro-leaflets` on the same frames. | `results.json` and the table below |
 
 Example output:
 
@@ -88,7 +88,14 @@ clash     381    386   1.6549   1.6677      -0.35      0.20         +2.70
 map       369    367   1.6999   1.6892      +0.93      0.18         +0.50
 ```
 
-- `rho`: lipids per nm² beyond the cut-off.
+- `rho`: lipids per nm² of the leaflet's surface beyond the cut-off.
+
+**Curved leaflet areas.** A bilayer that bends, such as the dish that forms inside QmcA's ring, would look like a leaflet mismatch if the leaflets were measured in projection. Their lipids shift sideways in opposite directions, and the concave leaflet seems denser. So in each frame `analyse`:
+- fits smooth surfaces to the two phosphate layers (Gaussian, `--smooth` 1 nm) and takes their mean as the midplane;
+- assigns each lipid to a region by its foot on the midplane along the local normal;
+- measures each leaflet's area on the surface parallel to the midplane at the mean distance of its glycerol beads, near the monolayer's neutral plane.
+
+On a synthetic 2 nm-deep dish whose leaflets are equally packed, this gives a mismatch of about 1%, against 10.6% in projection. A flat membrane gives the same result either way. `--projected` restores the projected measure.
 - `up-lo`: the difference between the leaflets in area-weighted packing (the sum of each lipid's area per lipid, per nm²) in that region. It equals the density difference for symmetric compositions, and also works for asymmetric ones. 0 means matched.
 - `se`: the standard error of `up-lo` from 1 ns blocks.
 - `leaflets`: `mempro-leaflets`' differential strain over the same frames. It uses the footprint definition under test, so it is not independent of the build.

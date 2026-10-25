@@ -396,6 +396,93 @@ def cmd_run(args):
 REGIONS = ("bulk", "enclosed")
 
 
+def periodic_field(xy, values, box, spacing, sigma):
+    """
+    Smooth periodic field of values at scattered points: Gaussian-weighted mean on a grid of about `spacing` nm
+    (normalised convolution), so gaps such as the protein are filled from around them.
+    """
+    from scipy import ndimage
+    n = np.maximum(1, np.round(box / spacing).astype(int))
+    ij = (lc_wrap(xy, box) / box * n).astype(int) % n
+    s = np.zeros(n)
+    c = np.zeros(n)
+    np.add.at(s, (ij[:, 0], ij[:, 1]), values)
+    np.add.at(c, (ij[:, 0], ij[:, 1]), 1.0)
+    sig = sigma / (box / n)
+    s = ndimage.gaussian_filter(s, sig, mode="wrap")
+    c = ndimage.gaussian_filter(c, sig, mode="wrap")
+    mean = values.mean() if len(values) else 0.0
+    return np.where(c > 1e-6, s / np.maximum(c, 1e-12), mean), box / n
+
+
+def field_at(field, cell, xy, box):
+    """Periodic bilinear interpolation of a grid field (cell centres at (i+0.5)*cell) at points xy."""
+    from scipy import ndimage
+    q = lc_wrap(xy, box) / cell - 0.5
+    return ndimage.map_coordinates(field, [q[:, 0], q[:, 1]], order=1, mode="grid-wrap")
+
+
+def curved_leaflets(pxy, pz, up, gz, box, masks, pixel, sigma=1.0, spacing=0.5):
+    """
+    Lipids and leaflet areas in regions of a curved bilayer. The midplane is the mean of smooth fits of the two
+    phosphate surfaces. Each lipid is assigned to the region containing its foot on the midplane along the local
+    normal (not its projection onto the xy plane, which in a curved bilayer shifts the two leaflets in opposite
+    directions), and each leaflet's area is measured on the surface parallel to the midplane at the mean normal
+    distance of its glycerol beads gz (about the monolayer's neutral plane), over the region's midplane footprint.
+    masks: {region: boolean grid over the box, pixel (px,py)}. Returns {region: {leaflet: (selection, area)}},
+    and the glycerol distances {leaflet: h}.
+    """
+    zu, cell = periodic_field(pxy[up], pz[up], box, spacing, sigma)
+    zl, _ = periodic_field(pxy[~up], pz[~up], box, spacing, sigma)
+    m = (zu + zl) / 2
+
+    def d(f, axis):
+        return (np.roll(f, -1, axis) - np.roll(f, 1, axis)) / (2 * cell[axis])
+    mx, my = d(m, 0), d(m, 1)
+    norm = np.sqrt(1 + mx ** 2 + my ** 2)
+    nx, ny, nz = -mx / norm, -my / norm, 1 / norm
+
+    # Foot f of each lipid on the midplane, where xyz = (f, m(f)) + dist n(f) (fixed-point steps), and normal
+    # distances of the glycerol beads
+    def feet(xyz):
+        f = xyz[:, :2].copy()
+        for _ in range(4):
+            n = np.column_stack([field_at(a, cell, f, box) for a in (nx, ny, nz)])
+            dist = (xyz[:, 2] - field_at(m, cell, f, box)) / n[:, 2]
+            f = xyz[:, :2] - dist[:, None] * n[:, :2]
+        return f, dist
+    foot, _ = feet(np.column_stack([pxy, pz]))
+    _, gdist = feet(np.column_stack([pxy, gz]))
+    h = {"upper": float(np.abs(gdist[up]).mean()), "lower": float(np.abs(gdist[~up]).mean())}
+
+    # Area element of the parallel surface x + s h n, relative to the xy plane, interpolated onto the region grid
+    gx, gy = np.meshgrid((np.arange(masks_shape(masks)[0]) + 0.5) * pixel[0],
+                         (np.arange(masks_shape(masks)[1]) + 0.5) * pixel[1], indexing="ij")
+    grid_xy = np.column_stack([gx.ravel(), gy.ravel()])
+    out = {region: {} for region in masks}
+    for leaf, sel, sgn in (("upper", up, 1), ("lower", ~up, -1)):
+        hh = sgn * h[leaf]
+        sx = np.stack([1 + hh * d(nx, 0), hh * d(ny, 0), mx + hh * d(nz, 0)])
+        sy = np.stack([hh * d(nx, 1), 1 + hh * d(ny, 1), my + hh * d(nz, 1)])
+        elem = np.linalg.norm(np.cross(sx, sy, axis=0), axis=0)
+        elem_grid = field_at(elem, cell, grid_xy, box).reshape(masks_shape(masks))
+        for region, mask in masks.items():
+            inside = fp_lookup_grid(mask, foot, box)
+            out[region][leaf] = (sel & inside, float((elem_grid * mask).sum() * pixel[0] * pixel[1]))
+    return out, h
+
+
+def masks_shape(masks):
+    return next(iter(masks.values())).shape
+
+
+def fp_lookup_grid(grid, xy, box):
+    nx, ny = grid.shape
+    ix = np.floor(lc_wrap(xy, box)[:, 0] / box[0] * nx).astype(int) % nx
+    iy = np.floor(lc_wrap(xy, box)[:, 1] / box[1] * ny).astype(int) % ny
+    return grid[ix, iy]
+
+
 def analyse_method(d, args, lc, areas, fp):
     """
     Leaflet packing beyond args.cutoff of the protein, per frame. The far region is split into the bulk membrane (its
@@ -407,7 +494,7 @@ def analyse_method(d, args, lc, areas, fp):
         run([args.gmx, "trjconv", "-f", "md.xtc", "-s", "md.tpr", "-b", str(args.skip_ns * 1000), "-o", "frames.gro"],
             cwd=d, stdin="0\n", log="trjconv.log")
     leaflet_of = None
-    rows = []
+    rows, hs = [], []
     for resid, resname, atomname, xyz, box in lc.read_gro_frames([frames_gro]):
         prot = np.isin(resname, list(lc.AMINO_ACIDS))
         lip = ~prot & ~np.isin(resname, list(SOLVENT))
@@ -416,6 +503,8 @@ def analyse_method(d, args, lc, areas, fp):
         # Each lipid's phosphate (first PO bead, otherwise its first bead), as in mempro-leaflets
         po = np.array([next((i for i in m if atomname[i].startswith("PO")), m[0]) for m in mols])
         pz, pxy = xyz[po, 2], xyz[po, :2]
+        # Each lipid's glycerol height (mean of its GL beads, otherwise its phosphate), for the curved measure
+        gz = np.array([np.mean([xyz[i, 2] for i in m if atomname[i].startswith("GL")] or [xyz[p, 2]]) for m, p in zip(mols, po)])
         if leaflet_of is None:
             # Leaflets from the first frame, split at the largest gap in phosphate height (lipids do not flip)
             order = np.argsort(pz)
@@ -438,20 +527,28 @@ def analyse_method(d, args, lc, areas, fp):
         bulk = fp["fp_main_component"](far)
         region_maps = {"bulk": bulk, "enclosed": far & ~bulk}
         row = {"box": float(b[0] * b[1])}
+        if not args.projected:
+            curved, h = curved_leaflets(pxy, pz, up, gz, b, region_maps, (b[0] / nx, b[1] / ny), sigma=args.smooth)
+            hs.append(h)
         for region, mask in region_maps.items():
             area = mask.mean() * b[0] * b[1]
-            inside = fp["fp_lookup"](mask, pxy, b)
             row[region] = {"area": float(area)}
-            for label, sel in (("upper", up), ("lower", lo)):
-                s = sel & inside
-                row[region][label] = {"n": int(s.sum()), "density": s.sum() / area if area > 0 else float("nan"),
-                                      "packing": sum(areas["get_apl"](n) for n in names[s]) / area if area > 0 else float("nan")}
+            if args.projected:
+                inside = fp["fp_lookup"](mask, pxy, b)
+                leaves = {label: (sel & inside, area) for label, sel in (("upper", up), ("lower", lo))}
+            else:
+                leaves = curved[region]
+            for label, (s, a) in leaves.items():
+                row[region][label] = {"n": int(s.sum()), "area": a, "density": s.sum() / a if a > 0 else float("nan"),
+                                      "packing": sum(areas["get_apl"](n) for n in names[s]) / a if a > 0 else float("nan")}
         for label, sel in (("upper", up), ("lower", lo)):
             row[label] = {"n": int(sel.sum()), "thickness": float(abs(pz[sel].mean() - mid))}
         rows.append(row)
     if not rows:
         sys.exit("No frames after %g ns in %s" % (args.skip_ns, d))
-    res = {"frames": len(rows)}
+    res = {"frames": len(rows), "measure": "projected" if args.projected else "curved"}
+    if hs:
+        res["glycerol_distance"] = {leaf: float(np.mean([h[leaf] for h in hs])) for leaf in ("upper", "lower")}
     for label in ("upper", "lower"):
         res[label] = {"n": rows[0][label]["n"], "half_thickness": float(np.mean([r[label]["thickness"] for r in rows]))}
     block = max(1, int(round(1.0 / args.frame_ns)))
@@ -462,6 +559,7 @@ def analyse_method(d, args, lc, areas, fp):
         reg = {"area": float(area.mean())}
         for label in ("upper", "lower"):
             reg[label] = {"n": float(np.mean([r[region][label]["n"] for r in rows])),
+                          "area": float(np.mean([r[region][label]["area"] for r in rows])),
                           "density": float(np.mean([r[region][label]["density"] for r in rows])),
                           "packing": float(np.mean([r[region][label]["packing"] for r in rows]))}
         ratio = np.array([r[region]["upper"]["packing"] / r[region]["lower"]["packing"] - 1 for r in rows])
@@ -534,7 +632,8 @@ def differential_stress(region, ref):
     """
     Estimated differential stress (mN/m, upper minus lower leaflet tension) in a region: each leaflet's strain
     relative to the tensionless reference packing, times the monolayer area compressibility K_A/2. Linear
-    elasticity, ignoring curvature; an estimate for comparing builds.
+    elasticity; an estimate for comparing builds. With the curved measure (the default), the leaflet areas are
+    measured on each leaflet's own curved surface, so bending alone does not appear as stress.
     """
     strain = {leaf: ref["packing"] / region[leaf]["packing"] - 1 for leaf in ("upper", "lower")}
     return strain["upper"], strain["lower"], ref["ka"] / 2 * (strain["upper"] - strain["lower"])
@@ -563,7 +662,8 @@ def cmd_analyse(args):
     with open(os.path.join(args.dir, "results.json"), "w") as f:
         json.dump(results, f, indent=1)
     results.pop("_reference", None)
-    print("\nLipids beyond %.1f nm of the protein (%s, frames after %g ns)" % (args.cutoff, args.dir, args.skip_ns))
+    print("\nLipids beyond %.1f nm of the protein (%s, frames after %g ns; %s leaflet areas)" % (
+        args.cutoff, args.dir, args.skip_ns, "projected" if args.projected else "curved"))
     print("%-9s %-9s %8s %6s %6s %8s %8s %10s %7s %13s%s" % ("run", "region", "area", "n_up", "n_lo", "rho_up", "rho_lo", "up-lo (%)", "se (%)", "leaflets (%)",
                                                         "  strain up/lo (%)  stress (mN/m)" if ref else ""))
     for name, r in results.items():
@@ -593,7 +693,12 @@ def cmd_analyse(args):
                 print("%-7s %-9s %4d %+10.2f %7.2f %13s%s" % (method, region, len(vals), np.mean(vals), se,
                                                             "%+.2f" % np.mean(strain) if region == "bulk" and strain else "", extra))
     print("\nbulk: the largest connected region beyond the cut-off; enclosed: regions the protein encloses there (e.g. inside a")
-    print("ring), which cannot exchange lipids with the bulk in a short run. area: nm^2; n: lipids in the region; rho: per nm^2.")
+    print("ring), which cannot exchange lipids with the bulk in a short run. area: nm^2 (projected); n: lipids in the region;")
+    if args.projected:
+        print("rho: per nm^2 of the projected region (lipids by their phosphate's xy position).")
+    else:
+        print("rho: per nm^2 of the leaflet's curved surface, at its glycerol beads, over the region; lipids are assigned by")
+        print("their foot on the fitted midplane along its normal, so a bent bilayer does not appear as a leaflet mismatch.")
     print("up-lo: difference in area-weighted packing between the leaflets (0 = equal packing).")
     if ref:
         print("strain: each leaflet's area per lipid relative to the protein-free reference; stress: estimated differential")
@@ -657,6 +762,9 @@ def main(argv=None):
     a.add_argument("--skip-ns", type=float, default=1.0, help="Production time to skip as equilibration (ns) (Default: 1)")
     a.add_argument("--cutoff", type=float, default=3.0, help="Distance from the protein (nm) beyond which lipids are counted (Default: 3)")
     a.add_argument("--slab", type=float, default=2.5, help="Protein beads within this distance of the midplane (nm) count as in the membrane (Default: 2.5)")
+    a.add_argument("--projected", action="store_true", help="Measure leaflet areas projected onto the xy plane, as before, "
+                   "instead of on each leaflet's curved surface (a bent bilayer then reads as a leaflet mismatch)")
+    a.add_argument("--smooth", type=float, default=1.0, help="Width (nm) of the Gaussian smoothing of the fitted leaflet surfaces (Default: 1)")
     a.add_argument("--frame-ns", type=float, default=0.1, help="Time between frames (ns), for the error estimate (Default: 0.1)")
     a.add_argument("--gmx", default=os.environ.get("GMX", "gmx"), help="GROMACS executable (or $GMX)")
     a.add_argument("--reference", help="Directory with protein-free control runs (from control): adds each leaflet's strain and "

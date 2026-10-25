@@ -133,6 +133,24 @@ class TestSyntheticShapes(unittest.TestCase):
         self.assertLess(opened, 0.65 * closed)
         self.assertGreater(opened, np.pi * ((1.5 + R) ** 2 - (1.5 - R) ** 2))
 
+    def test_enclosed_auto(self):
+        # Lipids inside a closed barrel lined by hydrophobic residues with room for them (as in a c-ring), not
+        # inside a polar lumen (a porin or channel) or one too narrow for a lipid
+        def auto(barrel, resname):
+            n = len(barrel)
+            return maps(barrel, enclosed_free="auto", lining=(["SC1"] * n, [resname] * n, np.arange(n)))
+        wide = ring(1.5, 0.35)
+        lipids = auto(wide, "LEU")
+        (region,) = lipids["enclosed"]
+        self.assertTrue(region["lipids"]["upper"] and region["lipids"]["lower"])
+        self.assertAlmostEqual(region["hydrophobic"], 1.0)
+        self.assertArea(lipids["upper"]["footprint"], maps(wide, enclosed_free=True)["upper"]["footprint"], rel=0.01)
+        polar = auto(wide, "SER")
+        self.assertFalse(polar["enclosed"][0]["lipids"]["upper"])
+        self.assertArea(polar["upper"]["footprint"], maps(wide)["upper"]["footprint"], rel=0.01)
+        narrow = auto(ring(0.8, 0.3), "LEU")
+        self.assertTrue(all(not r["lipids"]["upper"] for r in narrow["enclosed"]))
+
     def test_open_ring_interior_is_free(self):
         # Gaps between the beads let lipids in (as for the QmcA ring)
         m = maps(ring(4.0, 1.2))
@@ -162,17 +180,17 @@ class TestSiteSelection(unittest.TestCase):
             self.assertTrue(np.all(FP["fp_lookup"](place, sites, BOX) >= 0.5))
 
 
-def write_pdb(path, pts):
+def write_pdb(path, pts, atom="BB", resname="LEU"):
     with open(path, "w") as f:
         for i, (x, y, z) in enumerate(pts * 10):
-            f.write("ATOM  %5d  BB  LEU A%4d    %8.3f%8.3f%8.3f  1.00  0.00\n" % (i + 1, i + 1, x, y, z))
+            f.write("ATOM  %5d  %-3s %-3s A%4d    %8.3f%8.3f%8.3f  1.00  0.00\n" % (i + 1, atom, resname, i + 1, x, y, z))
         f.write("END\n")
 
 
-def build(pts, args):
+def build(pts, args, atom="BB", resname="LEU"):
     tmp = tempfile.mkdtemp(prefix="footprint_test_")
     TMP_DIRS.append(tmp)
-    write_pdb(os.path.join(tmp, "prot.pdb"), pts)
+    write_pdb(os.path.join(tmp, "prot.pdb"), pts, atom, resname)
     cmd = [sys.executable, INSANE, "-f", "prot.pdb", "-x", "10", "-y", "10", "-z", "10", "-l", "POPE", "-sol", "W",
            "-o", "sys.gro", "-p", "topol.top"] + args
     out = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True)
@@ -231,6 +249,50 @@ class TestBuildWithMap(unittest.TestCase):
         data = np.load(npz)
         self.assertEqual(data["upper0_avail"].shape, (100, 100))
         self.assertAlmostEqual(data["lower0_place"].min(), 0.0)
+
+
+def heads_by_leaflet(gro):
+    """xy of each POPE head (NH3), split into leaflets by the head's height."""
+    with open(gro) as f:
+        lines = f.read().splitlines()[2:-1]
+    h = np.array([[float(l[20:28]), float(l[28:36]), float(l[36:44])] for l in lines
+                  if l[5:10].strip() == "POPE" and l[10:15].strip() == "NH3"])
+    mid = (h[:, 2].min() + h[:, 2].max()) / 2
+    return h[h[:, 2] > mid, :2], h[h[:, 2] <= mid, :2]
+
+
+class TestEnclosedBuild(unittest.TestCase):
+    # A closed barrel of radius 1.5 nm (side-chain beads, so it has a lining) in the middle of a 10 nm box
+    BARREL = ring(1.5, 0.35)
+
+    def inside(self, heads):
+        return int((np.linalg.norm(heads - 5.0, axis=1) < 1.0).sum())
+
+    def test_hydrophobic_barrel_gets_lipids(self):
+        for method in ("map", "clash"):
+            log, gro = build(self.BARREL, ["-footprint", method], atom="SC1", resname="LEU")
+            self.assertIn("100% hydrophobic: lipids in the upper and lower leaflets", log)
+            for heads in heads_by_leaflet(gro):
+                self.assertGreater(self.inside(heads), 0, method)
+
+    def test_polar_barrel_is_left_empty(self):
+        for method in ("map", "clash"):
+            log, gro = build(self.BARREL, ["-footprint", method], atom="SC1", resname="SER")
+            self.assertIn("0% hydrophobic: left empty", log)
+            for heads in heads_by_leaflet(gro):
+                self.assertEqual(self.inside(heads), 0, method)
+
+    def test_clash_does_not_stack_lipids(self):
+        # Lipids moved off blocked sites in a thick wall used to land on each other in the small free region it
+        # encloses (about 20 per leaflet, some 0.05 nm apart, inside r = 1.3 nm)
+        wall = np.vstack([ring(r, 0.35) for r in np.arange(1.3, 2.31, 0.35)])
+        log, gro = build(wall, ["-footprint", "clash", "-enclosed", "lipids"], atom="SC1", resname="LEU")
+        for heads in heads_by_leaflet(gro):
+            inside = heads[np.linalg.norm(heads - 5.0, axis=1) < 1.3]
+            self.assertGreater(len(inside), 0)
+            self.assertLess(len(inside), 10)
+            d = np.linalg.norm(heads[:, None] - heads[None], axis=2) + 10 * np.eye(len(heads))
+            self.assertGreater(d.min(), 0.3)
 
 
 @unittest.skipUnless(os.environ.get("MEMPRO_SLOW_TESTS"), "set MEMPRO_SLOW_TESTS=1 to build QmcA (234k beads)")

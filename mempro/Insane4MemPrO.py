@@ -522,7 +522,10 @@ def get_apl(name):
 # lipids fill the core volume the protein leaves free: a pixel's available fraction is the fraction of core slices in
 # which it is covered, or 0 where the protein occupies the headgroup layer. Free area = sum of fraction x pixel area.
 # Regions lipids cannot reach in any core slice of either leaflet (the inside of a closed barrel) are blocked unless
-# enclosed_free (-ring).
+# enclosed_free (-enclosed lipids, or -ring). With enclosed_free="auto" (-enclosed auto) each such region is judged in
+# each leaflet: it gets lipids if its narrowest core slice still has FP_ENCLOSED_MIN_AREA free (room for a lipid at every
+# depth) and at least FP_ENCLOSED_MIN_HYDROPHOBIC of the residues lining it are hydrophobic (as inside a c-ring, unlike
+# the water-filled lumen of a porin or channel).
 import numpy as np
 from scipy import ndimage
 from scipy.spatial import cKDTree
@@ -542,6 +545,11 @@ FP_BEAD_SIZE = {("GLY","BB"):"S",("ALA","BB"):"S",("PRO","BB"):"S",("ALA","SC1")
 	("ARG","SC1"):"S",("ARG","SC2"):"S",("PHE","SC1"):"S",("PHE","SC2"):"T",("PHE","SC3"):"T",("HIS","SC1"):"T",("HIS","SC2"):"T",
 	("HIS","SC3"):"T",("TYR","SC1"):"T",("TYR","SC2"):"T",("TYR","SC3"):"T",("TYR","SC4"):"T",("TRP","SC1"):"T",("TRP","SC2"):"T",
 	("TRP","SC3"):"T",("TRP","SC4"):"T",("TRP","SC5"):"T"}
+FP_ENCLOSED_MIN_AREA = 1.0
+FP_ENCLOSED_MIN_HYDROPHOBIC = 0.6
+FP_HYDROPHOBIC = {"ALA","VAL","LEU","ILE","MET","PHE","TRP","CYS","PRO"}
+# Backbone atoms and beads, which do not count towards the lining of an enclosed region
+FP_BACKBONE = {"N","CA","C","O","OXT","BB"}
 # Non-protein residues that may be in a protein file (MemPrO membrane dummies, water, ions)
 FP_SKIP_RES = {"DUM","W","SOL","PW","TW","SW","NA","CL","CA+","K","MG","ION"}
 
@@ -559,6 +567,11 @@ def fp_bead_radii(atomnames,resnames):
 		elif a != "CA":
 			radii[i] = FP_RADII[FP_BEAD_SIZE.get((r,a),"R")]
 	return radii
+
+def fp_residues(resids,chains):
+	"""Serial number of each atom's residue: a new residue wherever the residue id or chain changes."""
+	key = [(c,r) for r,c in zip(resids,chains)]
+	return np.cumsum([0]+[int(a != b) for a,b in zip(key[1:],key[:-1])])
 
 def fp_wrap(xy,box_xy):
 	"""Coordinates wrapped into [0,box) (x % L can round to L, which cKDTree rejects for periodic boxes)."""
@@ -593,7 +606,7 @@ def fp_main_component(free):
 	sizes[0] = 0
 	return roots[lab] == np.argmax(sizes)
 
-def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=False,lipid_r=FP_LIPID_RADIUS,dz=FP_SLICE,head=FP_HEAD,pixel=FP_PIXEL):
+def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=False,lining=None,lipid_r=FP_LIPID_RADIUS,dz=FP_SLICE,head=FP_HEAD,pixel=FP_PIXEL):
 	"""
 	Footprint maps of both leaflets of a flat membrane.
 	mid is the midplane z and half_up, half_lo the distances from it to the upper and lower phosphate planes (nm), each
@@ -601,6 +614,10 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 	Returns {"upper": leaflet, "lower": leaflet, "pixel": (px,py)}, where each leaflet has "avail" (available area fraction
 	per pixel), "place" (fraction of core slices where a lipid bead centre fits, 0 where the headgroup layer is
 	blocked), "free" and "footprint" (nm^2).
+	enclosed_free: False (regions the protein encloses are blocked), True (they are free) or "auto", which needs
+	lining = (atomnames, resnames, residue serial numbers) of the protein beads; "enclosed" then lists each enclosed
+	region with its "mask", "narrowest" and "mean" free area per leaflet (nm^2), lining "residues", "hydrophobic"
+	fraction, "centre" and "lipids" (whether each leaflet gets lipids there).
 	"""
 	box_xy = np.asarray(box_xy,dtype=float)[:2]
 	nx,ny,px,py = fp_grid(box_xy,pixel)
@@ -623,6 +640,10 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 	reach = (prot_r.max() if prot_r.size else 0)+lipid_r
 	sel = (prot_r > 0)&(prot_xyz[:,2] > zs.min()-reach)&(prot_xyz[:,2] < zs.max()+reach) if prot_r.size else np.zeros(0,dtype=bool)
 	pts,rads = prot_xyz[sel],prot_r[sel]
+	if lining is not None:
+		names = np.array([str(a).strip() for a in lining[0]],dtype=str)[sel]
+		resn = np.array([str(r).strip() for r in lining[1]],dtype=str)[sel]
+		resi = np.asarray(lining[2])[sel]
 	# Periodic in x and y only: z is shifted into a box far larger than the system
 	zoff = 5000.0
 	pbox = [box_xy[0],box_xy[1],2*zoff]
@@ -647,12 +668,52 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 		return ~blocked.reshape(shape)
 
 	free = {name:([free_at(z) for z in core],[free_at(z) for z in heads]) for name,(core,heads) in slices.items()}
-	if not enclosed_free:
+	enclosed = []
+	if enclosed_free is not True:
 		reachable = np.zeros(shape,dtype=bool)
+		anywhere = np.zeros(shape,dtype=bool)
 		for core,_ in free.values():
 			for f in core:
 				reachable |= fp_main_component(f)
-		free = {name:([f&reachable for f in core],[f&reachable for f in heads]) for name,(core,heads) in free.items()}
+				anywhere |= f
+		allowed = {name:reachable.copy() for name in free}
+		if enclosed_free == "auto":
+			if lining is None:
+				raise ValueError("enclosed_free='auto' needs lining")
+			side = ~np.isin(names,list(FP_BACKBONE))&~np.char.startswith(names.astype(str),"H")
+			resname_of = dict(zip(resi.tolist(),resn.tolist()))
+			lab,n = ndimage.label(anywhere&~reachable,structure=np.ones((3,3),dtype=int))
+			for c in range(1,n+1):
+				comp = lab == c
+				region = {"mask":comp,"narrowest":{},"mean":{},"lipids":{}}
+				lined = set()
+				for name,(core,_) in free.items():
+					counts = [(f&comp).sum() for f in core]
+					region["narrowest"][name] = min(counts)*px*py
+					region["mean"][name] = np.mean(counts)*px*py
+					#Residues with a side chain within reach of a lipid bead in the region, slice by slice
+					for z,f in zip(slices[name][0],core):
+						fc = (f&comp).ravel()
+						if not fc.any() or not len(pts):
+							continue
+						zf = np.ravel(z)[fc].mean()
+						near_z = side&(np.abs(pts[:,2]-zf) < rads+lipid_r+0.3)
+						if not near_z.any():
+							continue
+						reach_xy = np.sqrt(np.maximum((rads[near_z]+lipid_r+0.3)**2-(pts[near_z,2]-zf)**2,0))
+						d,_ = cKDTree(pix[fc],boxsize=box_xy).query(fp_wrap(pts[near_z,:2],box_xy))
+						lined.update(resi[near_z][d < reach_xy].tolist())
+				if max(region["mean"].values()) < 0.05:
+					continue
+				region["residues"] = len(lined)
+				region["hydrophobic"] = sum(resname_of[r] in FP_HYDROPHOBIC for r in lined)/len(lined) if lined else 0.0
+				region["centre"] = (float(gx[comp].mean()),float(gy[comp].mean()))
+				for name in free:
+					region["lipids"][name] = bool(region["narrowest"][name] >= FP_ENCLOSED_MIN_AREA and region["hydrophobic"] >= FP_ENCLOSED_MIN_HYDROPHOBIC)
+					if region["lipids"][name]:
+						allowed[name] |= comp
+				enclosed.append(region)
+		free = {name:([f&allowed[name] for f in core],[f&allowed[name] for f in heads]) for name,(core,heads) in free.items()}
 
 	rad = int(np.ceil(lipid_r/min(px,py)))
 	ii,jj = np.mgrid[-rad:rad+1,-rad:rad+1]
@@ -662,7 +723,7 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 			return f
 		return ndimage.binary_dilation(np.pad(f,rad,mode="wrap"),structure=disc)[rad:-rad,rad:-rad]
 
-	out = {"pixel":(px,py)}
+	out = {"pixel":(px,py),"enclosed":enclosed}
 	for name,(core,heads) in free.items():
 		avail = np.mean([covered(f) for f in core],axis=0)
 		avail[np.any([~covered(f) for f in heads],axis=0)] = 0
@@ -3251,7 +3312,8 @@ Protein related options. -fudge gives the exclusion radius around the protein.
 	("-center", Option(bool,		0,		None, "Center the protein on z")),
 	("-rotate", Option(str,		 1,		None, "Rotate protein (random|princ|angle(float))")),
 	("-fudge",  Option(float,	   1,		 0.3, "Fudge factor for allowing lipid-protein overlap. Recommended value when using -def is 0.15")),
-	("-ring",   Option(bool,		0,		None, "Put lipids inside the protein")),
+	("-ring",   Option(bool,		0,		None, "Put lipids inside the protein (the same as -enclosed lipids)")),
+	("-enclosed",   Option(str,		1,		None, "Lipids in regions the protein encloses in the membrane: auto (where there is room for a lipid at every depth and the lining is hydrophobic, as in a c-ring; flat membranes), lipids, or empty (Default: auto, or lipids with -ring)")),
 	("-dm",	 Option(float,	   1,		None, "Shift protein with respect to membrane")),
 	"""
 Solvent related options.
@@ -4309,6 +4371,11 @@ if lipL:
 	prot_coords_fill = np.array(protein_lip.coord).reshape(-1,3)
 	prot_coords_plain = np.array(protein.coord).reshape(-1,3)
 	prot_radii = fp_bead_radii([a[0] for a in protein.atoms],[a[1] for a in protein.atoms])
+	prot_lining = ([a[0] for a in protein.atoms],[a[1] for a in protein.atoms],fp_residues([a[2] for a in protein.atoms],[a[3] for a in protein.atoms]))
+	enclosed_mode = options["-enclosed"].value or ("lipids" if any(prot_rings) else "auto")
+	if enclosed_mode not in ("auto","lipids","empty"):
+		print("ERROR: -enclosed must be auto, lipids or empty")
+		exit()
 	prot_coords = prot_coords_fill
 	#Lipids whose path can't reach the protein skip the bead-by-bead clash checks below (same result, much faster)
 	prot_tree = cKDTree(prot_coords) if len(prot_coords) > 0 else None
@@ -4327,11 +4394,15 @@ if lipL:
 	
 	#Tests whether a lipid can be placed at grid point gp with normal direc, tracing its tails past the protein.
 	#sgn is 1 for upper leaflets (tails along -direc) and -1 for lower. Returns whether it can be placed and the path.
-	def place_lipid(gp,direc,tails,sgn,gi,test_pts):
+	#avoid: optional test of a start point (x,y); starts it rejects are skipped
+	def place_lipid(gp,direc,tails,sgn,gi,test_pts,avoid=None):
 		zdef = 0
 		mtdef = 1.0
-		coll = False
+		coll = True
+		path = []
 		for si in test_pts:
+			if avoid is not None and avoid((gp[0]+si[0],gp[1]+si[1])):
+				continue
 			if memdata:
 				xtest = (gp[0]+si[0]-pbcx/2)*10
 				ytest = (gp[1]+si[1]-pbcy/2)*10
@@ -4380,7 +4451,8 @@ if lipL:
 	fp_map_out = {}
 	#-footprint map: fills each leaflet to (free area)/(area per site), on grid sites the protein leaves free plus sites
 	#added in the largest gaps. A lipid whose tails cannot be traced past the protein moves to a spare site.
-	def place_leaflets_map(gi,test_pts):
+	#Midplane and phosphate depths of flat membrane gi on the footprint grid
+	def membrane_geometry(gi):
 		box_xy = np.array([pbcx,pbcy])
 		nx,ny,px,py = fp_grid(box_xy)
 		mid = zdist*(gi*2-1)
@@ -4400,8 +4472,80 @@ if lipL:
 		else:
 			half_up,half_lo = get_phosphate_depth(lipUs[gi]),get_phosphate_depth(lipLs[gi])
 			source = "lipid lengths"
-		maps = footprint_maps(prot_coords_plain,prot_radii,box_xy,mid,half_up*scale,half_lo*scale,enclosed_free=options["-ring"].value is not None)
-		print("Footprint map%s: midplane z %.2f nm, phosphate planes +%.2f/-%.2f nm (from %s)"%(" of membrane %d"%(gi+1) if zdist > 1e-5 else "",np.mean(mid),half_up,half_lo,source))
+		return box_xy,mid,half_up*scale,half_lo*scale,"%.2f/-%.2f nm (from %s)"%(half_up,half_lo,source)
+
+	#Footprint maps, and which enclosed regions get lipids (printed)
+	def membrane_maps(gi):
+		box_xy,mid,half_up,half_lo,desc = membrane_geometry(gi)
+		maps = footprint_maps(prot_coords_plain,prot_radii,box_xy,mid,half_up,half_lo,enclosed_free={"auto":"auto","lipids":True,"empty":False}[enclosed_mode],lining=prot_lining)
+		for r in maps["enclosed"]:
+			gets = [name for name in ("upper","lower") if r["lipids"][name]]
+			where = " and ".join(gets)+(" leaflets" if len(gets) == 2 else " leaflet")
+			print("Enclosed region at (%.1f, %.1f) nm: narrowest free area %.1f/%.1f nm^2 (upper/lower), %d lining residues, %.0f%% hydrophobic: %s"
+				%(r["centre"][0],r["centre"][1],r["narrowest"]["upper"],r["narrowest"]["lower"],r["residues"],100*r["hydrophobic"],
+				"lipids in the %s"%where if gets else "left empty"))
+		if enclosed_mode == "auto" and maps["enclosed"]:
+			print("  (-enclosed auto: lipids where the narrowest core slice has at least %.1f nm^2 free and at least %.0f%% of the lining residues are hydrophobic; use -enclosed lipids or empty to override)"
+				%(FP_ENCLOSED_MIN_AREA,100*FP_ENCLOSED_MIN_HYDROPHOBIC))
+		return maps,box_xy,mid,half_up,half_lo,desc
+
+	#place_lipid starts a lipid whose grid site is blocked up to test_pts away from it, without checking other lipids,
+	#so lipids moved off neighbouring blocked sites can land on each other or on a lipid at its own site (dozens in a
+	#small free region such as the inside of a ring). Keeps every lipid at its own site, then places the moved ones
+	#again (least moved first), skipping starts within LIPID_MIN_SPACING of a lipid kept so far in the leaflet; a lipid
+	#with no such start is dropped. Returns the kept entries and the number dropped.
+	LIPID_MIN_SPACING = 0.55
+	def respace_moved(entries,tails,sgn,gi,test_pts):
+		if len(entries) < 2:
+			return entries,0
+		box_xy = np.array([pbcx,pbcy])
+		start = np.array([e[-1][0][:2] for e in entries])
+		shift = np.hypot(*(start-np.array([e[1:3] for e in entries])).T)
+		on_site = shift < 1e-6
+		kept = [e for e,k in zip(entries,on_site) if k]
+		tree = cKDTree(fp_wrap(start[on_site],box_xy),boxsize=box_xy) if on_site.any() else None
+		moved_xy = []
+		def crowded(xy):
+			p = fp_wrap(np.array([xy]),box_xy)[0]
+			if tree is not None and tree.query(p,distance_upper_bound=LIPID_MIN_SPACING)[0] < LIPID_MIN_SPACING:
+				return True
+			if moved_xy:
+				d = np.abs(np.array(moved_xy)-p)
+				d = np.minimum(d,box_xy-d)
+				return np.hypot(d[:,0],d[:,1]).min() < LIPID_MIN_SPACING
+			return False
+		dropped = 0
+		for i in np.where(~on_site)[0][np.argsort(shift[~on_site],kind="stable")]:
+			e = entries[i]
+			ok,path = place_lipid(np.array(e[1:4]),np.array(e[4:7]),tails,sgn,gi,test_pts,avoid=crowded)
+			if ok:
+				moved_xy.append(fp_wrap(np.array([path[0][:2]]),box_xy)[0])
+				kept.append(e[:-1]+(path,))
+			else:
+				dropped += 1
+		return kept,dropped
+
+	#-footprint clash with -enclosed auto: the protein plus beads filling the enclosed regions (in each leaflet) left empty
+	def clash_obstacles(gi):
+		maps,box_xy,mid,half_up,half_lo,_ = membrane_maps(gi)
+		px,py = maps["pixel"]
+		nx,ny = maps["upper"]["avail"].shape
+		gx,gy = np.meshgrid((np.arange(nx)+0.5)*px,(np.arange(ny)+0.5)*py,indexing="ij")
+		mid = np.broadcast_to(np.asarray(mid,dtype=float),(nx,ny))
+		beads = [prot_coords_plain]
+		for r in maps["enclosed"]:
+			for name,sgn,half in (("upper",1,half_up),("lower",-1,half_lo)):
+				if r["lipids"][name]:
+					continue
+				m = r["mask"][::2,::2]
+				half = np.broadcast_to(np.asarray(half,dtype=float),(nx,ny))[::2,::2][m]
+				for k in np.linspace(0,1,int(np.ceil((half.mean()+FP_HEAD)/0.25))+1):
+					beads.append(np.column_stack([gx[::2,::2][m],gy[::2,::2][m],mid[::2,::2][m]+sgn*k*(half+FP_HEAD)]))
+		return np.concatenate(beads)
+
+	def place_leaflets_map(gi,test_pts):
+		maps,box_xy,mid,half_up,half_lo,desc = membrane_maps(gi)
+		print("Footprint map%s: midplane z %.2f nm, phosphate planes +%s"%(" of membrane %d"%(gi+1) if zdist > 1e-5 else "",np.mean(mid),desc))
 		print("  Leaflets are built for zero differential stress: each leaflet's lipid area (lipids x area per lipid) equals its free area. Use -asym to build a different state.")
 		placed_both = []
 		for name,grid,direcs,tails,sgn,site_area,store in (("upper",up_grids[gi],direcss[gi],tailsUs[gi],1,[site_u,site_uo][gi],upper),
@@ -4444,7 +4588,14 @@ if lipL:
 			print("-footprint clash: the lipid counts of the leaflets are not set from their free areas, so the leaflets may not be at zero differential stress (see -footprint map)")
 		if footprint_mode == "map" and not use_map and (options["-ps"].value > 1e-5 or gi == 0):
 			print("-footprint map is for flat membranes filling the box; using -footprint clash for membrane %d"%(gi+1))
-		prot_coords = prot_coords_plain if use_map else prot_coords_fill
+		if use_map or enclosed_mode == "lipids":
+			prot_coords = prot_coords_plain
+		elif enclosed_mode == "auto" and membrane_flat(gi) and len(prot_coords_plain) and (options["-ps"].value > 1e-5 or gi == 0):
+			prot_coords = clash_obstacles(gi)
+		else:
+			if enclosed_mode == "auto" and len(prot_coords_plain) and (options["-ps"].value > 1e-5 or gi == 0):
+				print("-enclosed auto is for flat membranes; regions the protein encloses in membrane %d are left empty (use -enclosed lipids to fill them)"%(gi+1))
+			prot_coords = prot_coords_fill
 		prot_tree = cKDTree(prot_coords) if len(prot_coords) > 0 else None
 		if(options["-ps"].value > 1e-5 or gi == 0):
 			if use_map:
@@ -4456,13 +4607,17 @@ if lipL:
 					placed, path = place_lipid(up_grids[gi][i],direc,tailsUs[gi],1,gi,test_pts)
 					if(placed):
 						 upper_tmp.append((random.random(),up_grids[gi][i][0],up_grids[gi][i][1],up_grids[gi][i][2],direcss[gi][i][0],direcss[gi][i][1],direcss[gi][i][2],path))
-						 upper.append((random.random(),up_grids[gi][i][0],up_grids[gi][i][1],up_grids[gi][i][2],direcss[gi][i][0],direcss[gi][i][1],direcss[gi][i][2],path))
 				for i in range(total_lo_lips):
 					direc = np.array([direcs2s[gi][i][0],direcs2s[gi][i][1],direcs2s[gi][i][2]])
 					placed, path = place_lipid(lo_grids[gi][i],direc,tailsLs[gi],-1,gi,test_pts)
 					if(placed):
 						lower_tmp.append((random.random(),lo_grids[gi][i][0],lo_grids[gi][i][1],lo_grids[gi][i][2],direcs2s[gi][i][0],direcs2s[gi][i][1],direcs2s[gi][i][2],path))
-						lower.append((random.random(),lo_grids[gi][i][0],lo_grids[gi][i][1],lo_grids[gi][i][2],direcs2s[gi][i][0],direcs2s[gi][i][1],direcs2s[gi][i][2],path))
+				upper_tmp, drop_up = respace_moved(upper_tmp,tailsUs[gi],1,gi,test_pts)
+				lower_tmp, drop_lo = respace_moved(lower_tmp,tailsLs[gi],-1,gi,test_pts)
+				if drop_up or drop_lo:
+					print("Dropped %d upper and %d lower leaflet lipids that could only be placed off their blocked grid sites on top of other lipids"%(drop_up,drop_lo))
+				upper.extend((random.random(),)+e[1:] for e in upper_tmp)
+				lower.extend((random.random(),)+e[1:] for e in lower_tmp)
 
 			
 			# Sort on the random number
