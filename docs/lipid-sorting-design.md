@@ -145,6 +145,22 @@ One 1 µs run of OmpF (2OMF) with lipid A (LPA3, Ca2+) outside and POPE:POPG:TOC
 - Charge: within 1 nm of the inner head plane OmpF has 12 Lys/Arg against 21 Asp/Glu (27/27 within 2 nm), so the screened potential repels anionic lipids, yet MD shows slight POPG enrichment.
 - Deformation: MD inner heads sit 0.45 nm towards the midplane at the protein and recover over about 3 nm; the MemPrOD surface dips 0.31 nm and recovers within 1.2 nm. The sharper MemPrOD dip gives a larger curvature, here of the sign that repels TOCL.
 
+### Curvature smoothing (`-sort_smooth`)
+
+The head surface is smoothed with a Gaussian before its curvature is taken (SORT_SMOOTH, 0.5 nm). Sweep, 40 builds each, nearest 15:
+
+| σ (nm) | terms | 4G1U up POPG | up TOCL | lo POPG | lo TOCL | OmpF in POPG | in TOCL |
+|---|---|---|---|---|---|---|---|
+| MD | | 1.40 | 1.43 | 1.61 | 2.88 | 1.19 | 0.88 |
+| 0.5 | curvature | 1.12 | 1.43 | 1.15 | 1.39 | 0.94 | 0.79 |
+| 1 | curvature | 1.05 | 1.05 | 1.07 | 1.39 | 0.96 | 0.99 |
+| 2 | curvature | 1.02 | 1.19 | 0.98 | 0.85 | 1.12 | 1.02 |
+| 0.5 | all | 1.08 | 1.39 | 1.72 | 2.41 | 1.01 | 0.14 |
+| 1 | all | 1.13 | 0.95 | 1.49 | 2.37 | 0.84 | 0.58 |
+| 2 | all | 0.96 | 0.82 | 1.56 | 1.46 | 1.12 | 0.31 |
+
+Standard errors are 0.05–0.1 for POPG and 0.1–0.3 for TOCL. From σ = 1 nm the curvature term does almost nothing in either protein: the signal is within about 1 nm of the protein. That removes the 4G1U periplasmic enrichment, which MD has, and does not lift OmpF's TOCL depletion, which comes from charge and mismatch (each alone about 0.6, with `-sort none` at 0.86). The MemPrOD dip at OmpF is not much sharper than MD's: its second derivative next to the protein is about 1.5 times MD's, but its depth is smaller (0.31 against 0.45 nm). σ stays 0.5 nm.
+
 ## Found while implementing
 
 - `assign_lipids` took sites in list order, giving each type a block of sites. `-footprint map` appends the sites it adds in gaps next to the protein to the end of the list, so the last type in the composition collected them: in a uniform 4G1U build POPG was 27% within 2 nm of the protein against 18% further out. Sites are now assigned in random order, so `-sort none` is uniform.

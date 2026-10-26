@@ -1225,6 +1225,7 @@ SORT_KA = 60.0          # Area compressibility modulus (kT/nm^2): POPE 64, POPG 
 SORT_KAPPA_M = 10.0     # Monolayer bending modulus (kT)
 SORT_EPS_R = 15.0       # Relative dielectric constant (Martini 3)
 SORT_RMIN = 0.4         # Closest charge-charge distance in the potential (nm)
+SORT_SMOOTH = 0.5       # Gaussian width (nm) the head surface is smoothed over before its curvature is taken
 # Phosphate depth from the midplane (nm) in protein-free bilayers, 200 ns at 310 K, lipidome v2 (TOCL from POPE:TOCL
 # 80:20, scaled by its depth relative to POPE there); types not listed get the leaflet mean (no mismatch)
 SORT_DEPTH = {"POPE":2.135, "POPG":2.000, "TOCL":2.145}
@@ -3438,6 +3439,7 @@ Protein related options. -fudge gives the exclusion radius around the protein.
 	("-sort",   Option(str,		1,		"none", "Lipid types around the protein: none (each leaflet's composition spread uniformly) or model (types drawn per site from mismatch with the local thickness under -def, curvature of the leaflet and the protein's charges, keeping each leaflet's composition; flat membranes; docs/lipid-sorting-design.md)")),
 	("-sort_terms",   Option(str,		1,		"mismatch,curvature,charge", "Terms of -sort model (comma-separated, from mismatch, curvature and charge)")),
 	("-sort_debye",   Option(float,		1,		None, "Debye screening length (nm) for -sort model (default: Debye-Hueckel for the first -ion_conc with epsilon_r 15)")),
+	("-sort_smooth",   Option(float,		1,		None, "Width (nm, Gaussian sigma) the head surface is smoothed over before its curvature is taken for -sort model (default: SORT_SMOOTH)")),
 	("-enclosed",   Option(str,		1,		None, "Lipids in regions the protein encloses in the membrane: auto (where there is room for a lipid at every depth and the lining is hydrophobic, as in a c-ring; flat membranes), lipids, or empty (Default: auto, or lipids with -ring)")),
 	("-dm",	 Option(float,	   1,		None, "Shift protein with respect to membrane")),
 	"""
@@ -4621,8 +4623,9 @@ if lipL:
 		flat = leaflet_half(gi)[0 if leaflet > 0 else 1]
 		half = np.broadcast_to(half_up if leaflet > 0 else half_lo,(nx,ny))
 		head = np.broadcast_to(mid,(nx,ny))+leaflet*half
-		#Monolayer curvature of the head surface, smoothed over 0.5 nm; negative where it curves around the water
-		hs = ndimage.gaussian_filter(head,(0.5/px,0.5/py),mode="wrap")
+		#Monolayer curvature of the head surface, smoothed over -sort_smooth; negative where it curves around the water
+		smooth = options["-sort_smooth"].value or SORT_SMOOTH
+		hs = ndimage.gaussian_filter(head,(smooth/px,smooth/py),mode="wrap")
 		lap = (np.roll(hs,1,0)+np.roll(hs,-1,0)-2*hs)/px**2+(np.roll(hs,1,1)+np.roll(hs,-1,1)-2*hs)/py**2
 		curv = -leaflet*lap
 		xyz = np.array([s_[:3] for s_ in sites],dtype=float)
