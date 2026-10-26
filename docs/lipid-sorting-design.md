@@ -88,6 +88,63 @@ Protein-free Martini 3 lipidome v2 bilayers, 310 K, 0.15 M NaCl, 200 ns (50–20
 4. **Outer-membrane protein.** An OMP (e.g. OmpF, 2OMF) in an asymmetric outer membrane: 100% Kdo2-lipid A (`KLA`) in the outer leaflet, POPE:POPG:cardiolipin in the inner leaflet. It tests a thinner, asymmetric membrane: only the inner leaflet has a mixture to sort, and the barrel's short hydrophobic belt thins the membrane around it. Needs the Martini 3 Kdo2-lipid A topology and Ca²⁺ in the outer compartment.
 5. **Tail-length test.** The same protein in a POPE/DLPE/DPPE mixture, where mismatch is the only term that separates the species. This tests the MemPrOD-based term directly.
 
+## Results: 4G1U referee (2026-10-26)
+
+Two 1 µs uniform-start runs of 4G1U in POPE:POPG:TOCL 75:20:5 (lipidome v2, 0.15 M NaCl), against 40 Insane builds per condition in the same box. Enrichment is a species' fraction among the 15 lipids nearest the protein in a leaflet, over its fraction in the leaflet. Ranking by distance rather than using fixed distance shells is needed because MD lipids pack closer to the protein than built ones (about 42 against 14 per lower leaflet within 0.7 nm). Errors are standard errors over the two MD replicates or four groups of ten builds.
+
+| Nearest 15 | Upper POPG | Upper TOCL | Lower POPG | Lower TOCL |
+|---|---|---|---|---|
+| MD, 250–1000 ns | 1.40 ± 0.17 | 1.43 ± 0.25 | 1.61 ± 0.03 | 2.88 ± 0.09 |
+| `-sort none` | 0.91 | 0.96 | 1.02 | 0.85 |
+| `-sort model`, flat | 0.97 | 0.75 | 1.55 | 1.56 |
+| `-def`, charge only | 0.95 | 0.71 | 1.48 | 1.93 |
+| `-def`, mismatch only | 0.96 | 0.54 | 1.03 | 0.92 |
+| `-def`, curvature only | 1.22 | 1.19 | 1.16 | 1.46 |
+| `-def`, all terms | 1.33 ± 0.11 | 1.19 ± 0.07 | 1.68 ± 0.10 | 2.61 ± 0.30 |
+
+- The MD sorting equilibrates within about 100 ns; enrichment in 100–250 ns already matches 750–1000 ns.
+- `-sort model -def` reproduces the MD enrichment in both leaflets, within 1–2 standard errors.
+- Charge drives the cytoplasmic leaflet: within 2 nm of its head plane 4G1U has 44 Lys/Arg and 16 Asp/Glu. The periplasmic side is net neutral, and its enrichment comes from the curvature term on the MemPrOD-deformed surface, so a flat build misses it.
+- Mismatch adds nothing for these lipids (identical tails, about 0.1 kT).
+- Debye length: 0.35 nm (Debye–Hückel at 0.15 M) fits. At 0.6–1.5 nm the cytoplasmic leaflet over-enriches (TOCL 4–9×), and the periplasmic leaflet still shows no enrichment without `-def`.
+- Cardiolipin, which takes two sites, is under-placed in the 15 nearest and over-placed in the next 15 in all builds, including `-sort none`. Taking the second site next to the protein is harder, which may limit its first-shell enrichment.
+- Recommended use: `-sort model -def <MemPrOD Membrane_Data/>`.
+
+### Sorted start (2 × 200 ns)
+
+Two runs started from single `-sort model -def` builds, enrichment of the nearest 15 against time (mean of the two runs; uniform-start runs for comparison):
+
+| Start | Time (ns) | Upper POPG | Upper TOCL | Lower POPG | Lower TOCL |
+|---|---|---|---|---|---|
+| sorted | 0–5 | 1.65 | 2.04 | 2.51 | 0.68 |
+| sorted | 100–200 | 1.38 | 1.30 | 2.12 | 1.32 |
+| uniform | 0–5 | 0.99 | 0.68 | 0.67 | 0.68 |
+| uniform | 100–200 | 1.23 | 1.59 | 1.75 | 2.84 |
+| uniform | 250–1000 | 1.40 | 1.43 | 1.61 | 2.88 |
+
+- POPG starts at the MD level and stays there: no initial 50–100 ns of sorting. The lower leaflet holds slightly above the uniform-start value (2.1 against 1.6–1.75).
+- Upper TOCL starts high in single builds and relaxes to the MD value within 50 ns.
+- Lower TOCL is not resolved: the leaflet has 14 cardiolipins and the nearest 15 hold 0–3. One run lost its first-shell cardiolipin (0.26), the other gained it (2.39). The builds put it in the second shell (as above), and whether MD then draws it in needs longer or more runs.
+
+## Results: OmpF, inner leaflet (2026-10-26)
+
+One 1 µs run of OmpF (2OMF) with lipid A (LPA3, Ca2+) outside and POPE:POPG:TOCL 75:20:5 inside (17 TOCL), against 40 builds per condition. Inner leaflet, nearest 15 lipids:
+
+| | POPG | TOCL |
+|---|---|---|
+| MD, 250–1000 ns (three 250 ns blocks) | 1.19 ± 0.09 | 0.88 ± 0.31 |
+| `-sort none` | 1.02 | 0.86 |
+| `-sort model`, flat | 0.85 | 0.59 |
+| `-def`, charge only | 0.85 | 0.58 |
+| `-def`, curvature only | 1.02 | 0.55 |
+| `-def`, mismatch only | 1.00 | 0.58 |
+| `-def`, all terms | 0.95 | 0.17 |
+
+- MD sorting at OmpF is weak: POPG slightly enriched, TOCL not enriched. Its 50–250 ns blocks range from 0.4 to 2.5, so one run does not pin it down.
+- The model predicts depletion, and with `-def` strongly so; the terms compound. The 4G1U agreement does not carry over.
+- Charge: within 1 nm of the inner head plane OmpF has 12 Lys/Arg against 21 Asp/Glu (27/27 within 2 nm), so the screened potential repels anionic lipids, yet MD shows slight POPG enrichment.
+- Deformation: MD inner heads sit 0.45 nm towards the midplane at the protein and recover over about 3 nm; the MemPrOD surface dips 0.31 nm and recovers within 1.2 nm. The sharper MemPrOD dip gives a larger curvature, here of the sign that repels TOCL.
+
 ## Found while implementing
 
 - `assign_lipids` took sites in list order, giving each type a block of sites. `-footprint map` appends the sites it adds in gaps next to the protein to the end of the list, so the last type in the composition collected them: in a uniform 4G1U build POPG was 27% within 2 nm of the protein against 18% further out. Sites are now assigned in random order, so `-sort none` is uniform.
