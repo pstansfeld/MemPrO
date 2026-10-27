@@ -1,0 +1,63 @@
+# Publish to PyPI when a version tag (e.g. v1.2.3) is pushed.
+# Uses PyPI trusted publishing: no API token is stored anywhere.
+# One-time setup on PyPI: project -> Manage -> Publishing -> add a GitHub publisher
+# with this repository, workflow "publish.yml" and environment "pypi".
+#
+# Release:  bump the version, commit, then
+#   git tag -s vX.Y.Z -m "Release X.Y.Z" && git push origin main vX.Y.Z
+# To (re)publish an existing tag: Actions -> Publish to PyPI -> Run workflow -> pick the tag.
+
+name: Publish to PyPI
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check --strict dist/*
+
+      - name: Check the tag matches the package version
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::Run this workflow on a version tag (vX.Y.Z), not a branch."
+            exit 1
+          fi
+          wheel=$(ls dist/*.whl)
+          version=$(basename "$wheel" | cut -d- -f2)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package version $version."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
