@@ -34,9 +34,9 @@ MemPrO uses a GPU automatically when JAX can see one, and the CPU otherwise; use
 
 Clone the GitHub repository. Python 3.11 or later is required, along with the following packages:
 
-* JAX 0.6.0 or later (CPU), tested up to 0.11.2. Recent versions are fastest; JAX 0.11 needs Python 3.12 or later:
+* JAX 0.6.0 or later (CPU), tested up to 0.12.0. Recent versions are fastest; JAX 0.11 and later need Python 3.12 or later:
 ```
-pip install "jax[cpu]>=0.6.0,<0.12"
+pip install "jax[cpu]>=0.6.0,<0.13"
 ```
 * Matplotlib 3.8.4 or later:
 ```
