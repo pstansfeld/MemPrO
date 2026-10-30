@@ -217,6 +217,64 @@ class TestLipidome(unittest.TestCase):
         self.assertEqual(membrane_charge(log), -counts["XXES"])
         self.assertIn("WARNING: The bead names of POPC", log)
 
+    def test_lipid_itp_bead_names_by_position(self):
+        """Martini 3 lipidome CARD has no ;@INSANE line and renamed beads; the names come from the itp."""
+        tmp = tempfile.mkdtemp(prefix="insane_itp_")
+        TMP_DIRS.append(tmp)
+        itp = os.path.join(tmp, "card.itp")
+        beads = ("GLC PO41 GL11 GL21 C1A1 D2A1 C3A1 C4A1 C1B1 C2B1 C3B1 C4B1 "
+                 "PO42 GL12 GL22 C1A2 D2A2 C3A2 C4A2 C1B2 C2B2 C3B2 C4B2").split()
+        with open(itp, "w") as f:
+            f.write("[ moleculetype ]\nCARD 1\n[ atoms ]\n")
+            for i, b in enumerate(beads):
+                f.write("%d C1 1 CARD %s %d %s\n" % (i + 1, b, i + 1, "-1.0" if b.startswith("PO") else "0"))
+        log, counts, gro = build(["-x", "10", "-y", "10", "-z", "10", "-l", "POPE:9", "-l", "CARD:1", "-lipid_itp", itp])
+        self.assertGreater(counts["CARD"], 0)
+        self.assertEqual(residue_beads(gro, "CARD"), beads)
+        self.assertNotIn("WARNING: The bead names of CARD", log)
+
+
+class TestProteinCharge(unittest.TestCase):
+    """A lipoprotein chain: CYST has a neutral N-terminus, so the C-terminal -1 is not cancelled as residue names assume."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="insane_charge_")
+        TMP_DIRS.append(self.dir)
+        resnames = ["CYST"] + ["LEU"] * 19
+        with open(os.path.join(self.dir, "prot.pdb"), "w") as f:
+            for i, r in enumerate(resnames):
+                f.write("ATOM  %5d  BB  %-4sA%4d    %8.3f%8.3f%8.3f  1.00  0.00\n" % (i + 1, r, i + 1, 50.0, 50.0, -28.5 + 3 * i))
+            f.write("END\n")
+        with open(os.path.join(self.dir, "chain.itp"), "w") as f:
+            f.write("[ moleculetype ]\nchain 1\n\n[ atoms ]\n")
+            for i, r in enumerate(resnames):
+                f.write("%d P5 %d %s BB %d %s\n" % (i + 1, i + 1, r, i + 1, "-1" if i == len(resnames) - 1 else "0.0"))
+
+    def write_top(self, copies):
+        top = os.path.join(self.dir, "prot.top")
+        with open(top, "w") as f:
+            f.write('#include "martini.itp"\n#include "chain.itp"\n\n[ molecules ]\nchain %d\n' % copies)
+        return top
+
+    def ions(self, extra):
+        log, counts, _ = build(["-f", os.path.join(self.dir, "prot.pdb"), "-x", "10", "-y", "10", "-z", "10", "-l", "POPE"] + extra)
+        return log, counts.get("NA", 0) - counts.get("CL", 0)
+
+    def test_residue_names_miss_terminus(self):
+        log, excess = self.ions([])
+        self.assertIn("Charge of protein: 0.0", log)
+        self.assertEqual(excess, 0)
+
+    def test_charge_from_topology(self):
+        log, excess = self.ions(["-p_top", self.write_top(1)])
+        self.assertIn("Charge of protein: -1.0", log)
+        self.assertEqual(excess, 1)
+
+    def test_mismatched_topology_falls_back(self):
+        log, excess = self.ions(["-p_top", self.write_top(2)])
+        self.assertIn("do not match the 20 protein beads", log)
+        self.assertIn("Charge of protein: 0.0", log)
+
 
 class TestLeafletCheck(unittest.TestCase):
     def run_check(self, gro):

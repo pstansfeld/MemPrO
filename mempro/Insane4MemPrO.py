@@ -2780,10 +2780,15 @@ def get_charge(lz,uz):
 	pcharge = 0
 	for ind,j in enumerate(protein.atoms):
 		pos = protein.coord[ind]
-		if not j[0].strip().startswith('v') and j[1:3] != last:
+		if protein_q is not None:
+			if(pos[2] > lz and pos[2] < uz):
+				pcharge += protein_q[ind]
+		elif not j[0].strip().startswith('v') and j[1:3] != last:
 			if(pos[2] > lz and pos[2] < uz):
 				pcharge += charges.get(j[1].strip(),0)  
 		last = j[1:3]
+	if protein_q is not None:
+		pcharge = int(round(pcharge))
 	total_charge = mcharge+pgcharge+pcharge
 	return total_charge,pcharge,mcharge,pgcharge
 
@@ -3363,6 +3368,7 @@ Input/output related options
 	("-o",	  Option(str,		 1,		None, "Output GRO file: Membrane with Protein")),
 	("-o_f",	  Option(str,		 1,		None, "Folder for additional files (Default: InsaneData)")),
 	("-p",	  Option(str,		 1,		None, "Optional rudimentary topology file")),
+	("-p_top",	  Option(str,		 1,		None, "Topology (.top) of the protein in -f, e.g. from martinize2. Protein charges are taken from it, including the termini, instead of from residue names")),
 	("-ct",	  Option(str,		 1,		None, "This will create a template of the membrane only.")),
 	("-in_t",	  Option(str,		 1,		None, "Input template for placement of multiple proteins.")),
 	("-fs",	  Option(str,		 1,		None, "Input text file with multiple proteins")),
@@ -3607,15 +3613,37 @@ def read_lipid_itp(fn):
 		if not lines:
 			continue
 		name = lines[0][0]
-		atoms, charge, sec = [], 0.0, None
+		atoms, resnames, qs, sec = [], [], [], None
 		for l in lines[1:]:
 			if l[0].startswith("["):
 				sec = "".join(l).strip("[]")
 			elif sec == "atoms" and len(l) >= 7 and not l[0].startswith("#"):
 				atoms.append(l[4])
-				charge += float(l[6])
-		mols[name] = {"atoms": atoms, "charge": int(round(charge)), "build": builds.get(name)}
+				resnames.append(l[3])
+				qs.append(float(l[6]))
+		mols[name] = {"atoms": atoms, "resnames": resnames, "charges": qs, "charge": int(round(sum(qs))), "build": builds.get(name)}
 	return mols
+
+
+# Charge of each bead of the molecules in a topology (.top), in order, with its residue name
+def read_top_charges(fn):
+	top_dir = os.path.dirname(os.path.abspath(fn))
+	with open(fn) as f:
+		txt = f.read()
+	mols = read_lipid_itp(fn)
+	for inc in re.findall(r'^\s*#include\s+"([^"]+)"', txt, re.M):
+		path = inc if os.path.isabs(inc) else os.path.join(top_dir, inc)
+		if os.path.exists(path):
+			mols.update(read_lipid_itp(path))
+	beads = []
+	for line in txt.split("[ molecules ]")[-1].splitlines() if "[ molecules ]" in txt else []:
+		l = line.split(";")[0].split()
+		if len(l) != 2:
+			continue
+		if l[0] not in mols:
+			raise KeyError("molecule %s in %s has no [ atoms ] in the included itps" % (l[0], fn))
+		beads += list(zip(mols[l[0]]["resnames"], mols[l[0]]["charges"]))*int(l[1])
+	return beads
 
 
 # The Martini 3 lipidome, for lipids without a built-in template
@@ -3638,9 +3666,13 @@ for fn in lipid_itps:
 		if mol["build"]:
 			kv = mol["build"]
 			define_lipid(name, kv.get("alhead",""), kv.get("allink",""), kv.get("altail",""))
-		elif name in lipidsa and name in used_lipids:
+		elif name in lipidsa:
 			beads = [b for b in lipidsa[name][1].split() if b != "-"]
-			if beads != mol["atoms"]:
+			if beads != mol["atoms"] and len(beads) == len(mol["atoms"]):
+				# Same beads under other names (e.g. CARD in the Martini 3 lipidome): take the names from the topology
+				names = iter(mol["atoms"])
+				lipidsa[name] = (lipidsa[name][0], " ".join(b if b == "-" else next(names) for b in lipidsa[name][1].split()))
+			elif beads != mol["atoms"] and name in used_lipids:
 				print("WARNING: The bead names of %s in %s differ from the template (%s); the built lipid will not match the topology" % (name, fn, " ".join(beads)), file=sys.stderr)
 
 # Add specified lipid definition to insane lipid library
@@ -3730,6 +3762,7 @@ elif options["-z"].value:
 
 protein  = Structure()
 protein_lip = Structure()
+protein_q = None # Charge of each protein bead, from -p_top
 prot	 = []
 xshifts  = [0] # Shift in x direction per protein
 
@@ -4940,6 +4973,17 @@ if(Num_PGL > 0):
 
 # Charge of the system so far
 
+# Residue names miss charges that are not on side chains, e.g. the termini, so take them from the protein topology if given
+if options["-p_top"].value and protein:
+	try:
+		beads = read_top_charges(options["-p_top"].value)
+	except (OSError, KeyError) as e:
+		beads = []
+		print("; WARNING: Could not read protein charges from %s (%s)" % (options["-p_top"].value, e), file=sys.stderr)
+	if len(beads) == len(protein.atoms) and all(r[:4] == a[1].strip()[:4] for (r, _), a in zip(beads, protein.atoms)):
+		protein_q = [q for _, q in beads]
+	elif beads:
+		print("; WARNING: The %d beads in %s do not match the %d protein beads in -f, so protein charges are inferred from residue names" % (len(beads), options["-p_top"].value, len(protein.atoms)), file=sys.stderr)
 
 charge,pcharge,mcharge,pgcharge = get_charge(0,pbcz)
 
