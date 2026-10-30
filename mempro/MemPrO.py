@@ -3436,6 +3436,11 @@ def add_Reses(Res, Resitp):
                 Beadtype[bt] = current_beadtype_no
                 current_beadtype_no += 1
 
+    if len(restobead_add) == 0:
+        # Without bead types the residue cannot be placed, and load_cg_pdb would fail with an IndexError
+        print("ERROR: Additional residue "+Res+" has no [ atoms ] entries in "+Resitp+". Add its definition to this itp (-res_itp).")
+        sys.exit(1)
+
     ResToBead.append(restobead_add)
 
     
