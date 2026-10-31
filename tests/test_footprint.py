@@ -302,8 +302,10 @@ class TestEnclosedBuild(unittest.TestCase):
             inside = heads[np.linalg.norm(heads - 5.0, axis=1) < 1.3]
             self.assertGreater(len(inside), 0)
             self.assertLess(len(inside), 10)
+            # Lipids start at least LIPID_MIN_SPACING (0.55 nm) apart, but the head bead sits 0.125 nm off the lipid
+            # axis in a random direction, plus a kick of up to 0.1 nm in x and y, so heads can come within 0.16 nm
             d = np.linalg.norm(heads[:, None] - heads[None], axis=2) + 10 * np.eye(len(heads))
-            self.assertGreater(d.min(), 0.3)
+            self.assertGreater(d.min(), 0.15)
 
 
 @unittest.skipUnless(os.environ.get("MEMPRO_SLOW_TESTS"), "set MEMPRO_SLOW_TESTS=1 to build QmcA (234k beads)")
