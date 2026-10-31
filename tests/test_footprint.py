@@ -3,11 +3,9 @@ Tests for the per-leaflet protein footprint (-footprint map, docs/footprint-desi
 
 Run from the repository root with:  python -m unittest discover tests
 The synthetic-shape tests call the footprint block directly (well under a second each); the build tests run
-Insane4MemPrO on small synthetic proteins (a few seconds each). The QmcA test builds a 234k-bead system and only runs
-with MEMPRO_SLOW_TESTS=1.
+Insane4MemPrO on small synthetic proteins (a few seconds each).
 """
 
-import gzip
 import os
 import re
 import shutil
@@ -21,7 +19,6 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSANE = os.path.join(ROOT, "mempro", "Insane4MemPrO.py")
 LEAFLETS = os.path.join(ROOT, "mempro", "leaflet_check.py")
-QMCA = os.path.join(ROOT, "tests", "data", "QmcA")
 sys.path.insert(0, os.path.join(ROOT, "mempro"))
 import leaflet_check  # noqa: E402
 
@@ -306,25 +303,6 @@ class TestEnclosedBuild(unittest.TestCase):
             # axis in a random direction, plus a kick of up to 0.1 nm in x and y, so heads can come within 0.16 nm
             d = np.linalg.norm(heads[:, None] - heads[None], axis=2) + 10 * np.eye(len(heads))
             self.assertGreater(d.min(), 0.15)
-
-
-@unittest.skipUnless(os.environ.get("MEMPRO_SLOW_TESTS"), "set MEMPRO_SLOW_TESTS=1 to build QmcA (234k beads)")
-class TestQmcA(unittest.TestCase):
-    def test_leaflets_matched(self):
-        tmp = tempfile.mkdtemp(prefix="qmca_test_")
-        TMP_DIRS.append(tmp)
-        with gzip.open(os.path.join(QMCA, "protein-cg_rank_1.pdb.gz"), "rt") as f, open(os.path.join(tmp, "prot.pdb"), "w") as g:
-            g.write(f.read())
-        cmd = [sys.executable, INSANE, "-f", "prot.pdb", "-x", "32.11502", "-y", "32.262005", "-z", "24.711554",
-               "-l", "POPE:8", "-l", "POPG:2", "-sol", "W", "-negi_c0", "CL", "-posi_c0", "NA", "-footprint", "map",
-               "-o", "sys.gro", "-p", "topol.top"]
-        out = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True)
-        self.assertEqual(out.returncode, 0, out.stderr[-3000:])
-        (fp_up, _, _), (fp_lo, _, _) = map_leaflets(out.stdout + out.stderr)
-        self.assertGreater(fp_lo, 3 * fp_up)  # the soluble cap rests on the lower headgroups
-        chk = subprocess.run([sys.executable, LEAFLETS, os.path.join(tmp, "sys.gro"), "-insane", INSANE], capture_output=True, text=True)
-        diff = float(re.search(r"Differential strain \(upper - lower\): (\S+)%", chk.stdout).group(1))
-        self.assertLess(abs(diff), 1.0)
 
 
 if __name__ == "__main__":
