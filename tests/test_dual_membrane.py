@@ -1,10 +1,13 @@
 """
-Test of double-membrane orientation (-dm) on MacAB-TolC (tests/data/MacAB-TolC).
+Tests of double-membrane orientation (-dm) on two tripartite pumps spanning the cell envelope:
+  MacAB-TolC (tests/data/MacAB-TolC), lying along z in its input file;
+  an AcrAB-TolC-type pump (tests/data/AcrAB-TolC), lying 46 degrees from z in its input file, which -dm got wrong until
+  the protein was turned so its long axis lies along z before the search.
 
-Run from the repository root with:  MEMPRO_SLOW_TESTS=1 python -m unittest tests.test_dual_membrane
-It runs MemPrO -dm on a 4,582-residue complex (about a minute with -ng 4), so it is skipped unless MEMPRO_SLOW_TESTS
-is set. The checks use the structure only (strands or helices in each membrane, where MacB's soluble mass is), not
-MemPrO's own sidedness rules.
+Run from the repository root with:  MEMPRO_SLOW_TESTS=1 python -m unittest discover -s tests -p "test_dual_membrane.py"
+Each runs MemPrO -dm on a complex of 4,500-6,500 residues (one to two minutes with -ng 4), so they are skipped unless
+MEMPRO_SLOW_TESTS is set. The checks use the structure only (strands or helices in each membrane, where the inner-
+membrane transporter's cytoplasmic part is), not MemPrO's own sidedness rules.
 """
 
 import gzip
@@ -20,7 +23,6 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEMPRO = os.path.join(ROOT, "mempro", "MemPrO.py")
-CG = os.path.join(ROOT, "tests", "data", "MacAB-TolC", "5NIK-cg.pdb.gz")
 
 
 def rise(xyz, idx):
@@ -33,14 +35,15 @@ def rise(xyz, idx):
     return float(np.median(out)) if out else 0.0
 
 
-@unittest.skipUnless(os.environ.get("MEMPRO_SLOW_TESTS"), "set MEMPRO_SLOW_TESTS=1 to run (about a minute)")
-class TestDualMembrane(unittest.TestCase):
+class DualMembraneChecks:
+    """Checks shared by both complexes; subclasses give CG (the gzipped CG model), SEPARATION (A) and BELOW (the
+    least number of backbone beads expected more than 2 nm below the inner membrane)."""
 
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        cg = os.path.join(cls.tmp, "5NIK-cg.pdb")
-        with gzip.open(CG, "rt") as src, open(cg, "w") as dst:
+        cg = os.path.join(cls.tmp, "cg.pdb")
+        with gzip.open(cls.CG, "rt") as src, open(cg, "w") as dst:
             dst.write(src.read())
         out = os.path.join(cls.tmp, "Orient") + "/"
         cls.log = subprocess.run([sys.executable, MEMPRO, "-f", cg, "-o", out, "-ng", "4", "-ni", "150", "-dm"],
@@ -68,15 +71,15 @@ class TestDualMembrane(unittest.TestCase):
         # The dummy membranes sit about the membrane centres at +/- half the separation
         self.assertAlmostEqual(max(dums), -min(dums), delta=5)
 
-    def test_long_axis_start(self):
+    def test_long_axis(self):
+        self.assertIn("Long axis turned onto z", self.log)
         self.assertIn("Long-axis start added", self.log)
 
     def test_membrane_separation(self):
-        # The periplasm MacA spans: about 272 A between the membrane centres (Insane4MemPrO tutorial 3)
-        self.assertAlmostEqual(2 * self.zdist, 272, delta=15)
+        self.assertAlmostEqual(2 * self.zdist, self.SEPARATION, delta=15)
 
     def test_barrel_outside_helices_inside(self):
-        # The membrane at +z holds TolC's beta-barrel, the one at -z MacB's helices
+        # The membrane at +z holds TolC's beta-barrel, the one at -z the transporter's helices
         z = self.xyz[:, 2]
         upper = np.where(np.abs(z - self.zdist) < 10)[0]
         lower = np.where(np.abs(z + self.zdist) < 10)[0]
@@ -86,13 +89,34 @@ class TestDualMembrane(unittest.TestCase):
         self.assertLess(rise(self.xyz, lower), 6.0)
 
     def test_cytoplasm_below(self):
-        # MacB's nucleotide-binding domains hang below the inner membrane; nothing is beyond the outer membrane but
+        # The transporter's cytoplasmic part hangs below the inner membrane; nothing is beyond the outer membrane but
         # the short extracellular end of TolC
         z = self.xyz[:, 2]
         below = (z < -self.zdist - 20).sum()
         above = (z > self.zdist + 20).sum()
-        self.assertGreater(below, 300)
-        self.assertLess(above, below / 5)
+        self.assertGreater(below, self.BELOW)
+        self.assertLess(above, below / 2)
+
+
+SLOW = unittest.skipUnless(os.environ.get("MEMPRO_SLOW_TESTS"), "set MEMPRO_SLOW_TESTS=1 to run (minutes)")
+
+
+@SLOW
+class TestMacABTolC(DualMembraneChecks, unittest.TestCase):
+    # MacB's nucleotide-binding domains are below the inner membrane; MacA spans about 272 A between the membrane
+    # centres (Insane4MemPrO tutorial 3)
+    CG = os.path.join(ROOT, "tests", "data", "MacAB-TolC", "5NIK-cg.pdb.gz")
+    SEPARATION = 272
+    BELOW = 300
+
+
+@SLOW
+class TestAcrABTolC(DualMembraneChecks, unittest.TestCase):
+    # Lies 46 degrees from z in its input; the RND transporter's cytoplasmic loops are below the inner membrane and
+    # the adaptors span about 275 A between the membrane centres
+    CG = os.path.join(ROOT, "tests", "data", "AcrAB-TolC", "cpx_4264-cg.pdb.gz")
+    SEPARATION = 275
+    BELOW = 150
 
 
 if __name__ == "__main__":

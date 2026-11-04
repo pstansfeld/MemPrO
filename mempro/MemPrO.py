@@ -868,6 +868,32 @@ class PDB_helper:
 			return carry,new_spheres
 		_,self.spheres = jax.lax.scan(rot_spheres,0,jnp.arange(self.spheres.shape[0]))
 		
+	#Turns the protein (positions, surface, spheres and normals) so its long axis, the first principal axis of its
+	#surface beads, lies along z. -dm estimates the membranes' starting separation and depth along z before
+	#minimising, so a complex spanning the periplasm must lie roughly along z for any start to begin near the right
+	#separation (MacAB-TolC along z oriented, the same complex lying at 46 degrees to z did not)
+	def align_long_axis(self):
+		p = np.asarray(self.surface_poses,dtype=float)
+		p = p-p.mean(axis=0)
+		evals,evecs = np.linalg.eigh(p.T@p)
+		axis = evecs[:,-1]
+		if axis[2] < 0:
+			axis = -axis
+		v = np.cross(axis,[0.0,0.0,1.0])
+		s,c = np.linalg.norm(v),float(axis[2])
+		if s < 1e-12:
+			return 0.0
+		vx = np.array([[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]])
+		rot = jnp.asarray(np.eye(3)+vx+vx@vx*((1-c)/s**2))
+		turn = lambda x: jnp.einsum("...j,ij->...i",x,rot)
+		self.surface_poses = turn(self.surface_poses)
+		self.poses = turn(self.poses)
+		self.all_poses = turn(self.all_poses)
+		self.spheres = turn(self.spheres)
+		if np.ndim(self.normals) >= 1 and np.shape(self.normals)[-1] == 3:
+			self.normals = turn(self.normals)
+		return float(np.degrees(np.arccos(min(1.0,c))))
+
 	def recenter_bvals(self):
 		tot = jnp.zeros(4) 
 		def recenter_fun(tot,ind):
@@ -3718,7 +3744,7 @@ def main():
 	parser.set_defaults(curvature=False)
 	parser.add_argument("-flip","--flip",action="store_true",help="Turns the protein over (180 degrees about x) after orientation, after -side.")
 	parser.set_defaults(flip=False)
-	parser.add_argument("-la","--long_axis",choices=["on","off"],help="With -dm, add a starting configuration with the membrane normals along the protein's long axis to the -ng grid (Default: on; not used without -dm)")
+	parser.add_argument("-la","--long_axis",choices=["on","off"],help="With -dm, turn the protein so its long axis lies along z before the search (the membranes' starting separation is estimated along z) and add a start with the membrane normals along it (Default: on; not used without -dm)")
 	parser.set_defaults(long_axis="on")
 	parser.add_argument("-side","--sidedness",choices=["auto","off"],help="Which way up the protein goes: auto puts the extracellular side up (Insane4MemPrO -u) and the cytoplasmic side (the periplasm, for outer-membrane proteins) at -z (-l), from lipid anchors and beta-barrels, or positive-inside for helical proteins; off keeps MemPrO's orientation (Default: auto)")
 	parser.set_defaults(sidedness="auto")
@@ -3963,6 +3989,9 @@ def main():
 	int_data = get_mem_def(martini_file)
 
 	#We extract the data from the PDB helper class and pass it to the main orientation class
+	#-dm: the long axis along z first (unless -la off), as the starting separation is estimated along z
+	if(args.dual_membrane and args.long_axis == "on"):
+		print("Long axis turned onto z for the double-membrane search (it was %.1f degrees from z)"%PDB_helper_test.align_long_axis())
 	data = PDB_helper_test.get_data()
 
 	#Creating MemBrain class
