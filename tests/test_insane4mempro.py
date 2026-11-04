@@ -13,6 +13,9 @@ import sys
 import tempfile
 import unittest
 
+import numpy as np
+from scipy.spatial import cKDTree
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSANE = os.path.join(ROOT, "mempro", "Insane4MemPrO.py")
 LEAFLETS = os.path.join(ROOT, "mempro", "leaflet_check.py")
@@ -62,9 +65,35 @@ class TestFlatFilling(unittest.TestCase):
         self.assertEqual(leaflet_counts(log), [(207, 207)])  # 120 nm^2 / 0.58
         self.assertEqual(counts["POPE"], 414)
 
-    def test_square_grid_same_count(self):
-        log, counts, _ = build(["-x", "12", "-y", "10", "-z", "10", "-l", "POPE", "-grid", "square"])
+    def test_circular_grid_same_count(self):
+        log, counts, _ = build(["-x", "12", "-y", "10", "-z", "10", "-l", "POPE", "-grid", "circular"])
         self.assertEqual(leaflet_counts(log), [(207, 207)])
+
+    def test_square_grid_packs_evenly(self):
+        # The default square grid leaves (almost) no beads of neighbouring lipids closer than 0.40 nm in either leaflet
+        # of an outer membrane; concentric rings leave many, most in the KLA leaflet
+        def contacts(grid):
+            args = ["-x", "12", "-y", "10", "-z", "12", "-u", "KLA", "-l", "POPE:7", "-l", "POPG:2", "-l", "CARD:1"]
+            log, counts, gro = build(args + (["-grid", grid] if grid else []), ions=False)
+            with open(gro) as f:
+                lines = f.read().split("\n")
+            n = int(lines[1])
+            rows = [r for r in lines[2:2 + n] if r[5:10].strip() in ("KLA", "POPE", "POPG", "CARD")]
+            box = np.array([float(v) for v in lines[2 + n].split()[:3]])
+            xyz = np.array([[float(r[20:28]), float(r[28:36]), float(r[36:44])] for r in rows]) % box
+            ids = np.array([int(r[:5]) for r in rows])
+            upper = np.array([r[5:10].strip() == "KLA" for r in rows])
+            out = []
+            for leaf in (upper, ~upper):
+                pairs = np.array(list(cKDTree(xyz[leaf], boxsize=box).query_pairs(0.40)))
+                out.append(int((ids[leaf][pairs[:, 0]] != ids[leaf][pairs[:, 1]]).sum()) if len(pairs) else 0)
+            return counts, out
+        counts_square, square = contacts(None)
+        counts_rings, rings = contacts("circular")
+        lipids = ("KLA", "POPE", "POPG", "CARD")
+        self.assertEqual([counts_square[k] for k in lipids], [counts_rings[k] for k in lipids])
+        self.assertLessEqual(max(square), 5)
+        self.assertGreater(rings[0], 10 * max(square[0], 1))
 
     def test_explicit_area(self):
         log, counts, _ = build(["-x", "10", "-y", "10", "-z", "10", "-l", "POPE", "-a", "0.7"])

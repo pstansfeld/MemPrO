@@ -3437,7 +3437,7 @@ are not specified. Curvature can be specified using -curv.
 	("-u_loc",	  Option(lipU_loc.append, 1,   None, "Currently WIP do not use. Lipid type for localisation")),
 	("-micelle",		Option(bool,		0,		  None, "Builds a micelle around a protein instead of a bilayer")),
 	("-radius",		Option(float,		1,		  -1, "Radius of membrane outer disk. This is by default the whole cell")),
-	("-grid",		Option(str,		1,		  "circular", "Lipid grid for flat membranes filling the box: circular (concentric rings) or square (continuous across the periodic boundaries). Curved membranes and -radius disks always use rings")),
+	("-grid",		Option(str,		1,		  "square", "Lipid grid for flat membranes filling the box: square (continuous across the periodic boundaries) or circular (concentric rings, which pack unevenly where they meet). Curved membranes and -radius disks always use rings")),
 	("-no_lipids",		Option(int,		1,		  -1, "Number of lipids that make up a micelle, this will override area per lipid. Only for use with -micelle")),
 	("-def",	  Option(str,		 1,		None, "Input folder containing deformation data from MemPrOD, This cannot be used with -ps or -curv.")),
 	"""
