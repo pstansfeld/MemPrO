@@ -2891,7 +2891,7 @@ class MemBrain:
 							else:
 								bbp = "%.3f" % (0)
 						
-						new_c = c[:30]+(" "*(8-len(xp)))+xp+(" "*(8-len(yp)))+yp+(" "*(8-len(zp))) +zp+c[54:60]+(" "*(8-len(bbp)))+bbp+c[66:]+"\n"						
+						new_c = c[:30]+(" "*(8-len(xp)))+xp+(" "*(8-len(yp)))+yp+(" "*(8-len(zp))) +zp+c[54:60]+"%6.2f"%float(bbp)+c[66:]+"\n"						
 						new_file.write(new_c)
 						all_orients.write(new_c)
 						if(self.build_no > i):
@@ -2941,7 +2941,7 @@ class MemBrain:
 						for xk in zs:
 							count += 1
 							count_str = (6-len(str(count)))*" "+str(count)
-							c = "ATOM "+count_str+" BB   DUM Z   1	   0.000   0.000  15.000  1.00  0.00" 
+							c = "ATOM "+count_str+" BB   DUM Z   1       0.000   0.000  15.000  1.00  0.00" 
 							xp = "%.3f" % (pos[0]+xk*norma[0])
 							yp = "%.3f" % (rank_flip*(pos[1]+xk*norma[1]))
 							zp = "%.3f" % (rank_flip*(pos[2]+xk*norma[2]))
@@ -2980,7 +2980,7 @@ class MemBrain:
 				for pos in xyz:
 					count += 1
 					count_str = (6-len(str(count)))*" "+str(count)
-					c = "ATOM "+count_str+" BB   PGL Z   1	   0.000   0.000  15.000  1.00  0.00" 
+					c = "ATOM "+count_str+" BB   PGL Z   1       0.000   0.000  15.000  1.00  0.00" 
 					xp = "%.3f" % (pos[0])
 					yp = "%.3f" % (rank_flip*pos[1])
 					zpa = np.format_float_positional(rank_flip*(pg_pos+self.pg_thickness/2),precision=3)
@@ -3078,7 +3078,7 @@ def write_point(points,fn,orient_dir):
 	for i in points:
 		count += 1
 		count_str = (6-len(str(count)))*" "+str(count)
-		c = "ATOM "+count_str+" BB   DUM	 1	   0.000   0.000  15.000  1.00  0.00" 
+		c = "ATOM "+count_str+" BB   DUM     1       0.000   0.000  15.000  1.00  0.00" 
 		xp = np.format_float_positional(i[0],precision=3)
 		yp = np.format_float_positional(i[1],precision=3)
 		zp = np.format_float_positional(i[2],precision=3)

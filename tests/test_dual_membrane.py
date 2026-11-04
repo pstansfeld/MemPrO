@@ -48,13 +48,25 @@ class TestDualMembrane(unittest.TestCase):
         with open(os.path.join(out, "Rank_1", "info_rank_1.txt")) as f:
             cls.info = f.read()
         with open(os.path.join(out, "Rank_1", "oriented_rank_1.pdb")) as f:
-            lines = [l for l in f if l.startswith("ATOM") and "DUM" not in l and l[12:16].strip() == "BB"]
+            cls.records = [l for l in f if l.startswith("ATOM")]
+        lines = [l for l in cls.records if "DUM" not in l and l[12:16].strip() == "BB"]
         cls.xyz = np.array([[float(l[30:38]), float(l[38:46]), float(l[46:54])] for l in lines])
         cls.zdist = float(re.search(r"Iter-Membrane distance \(for -dm only\): ([\d.]+)", cls.info).group(1)) / 2
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_pdb_columns(self):
+        # Protein and dummy-membrane records alike read back from the fixed PDB columns (no tabs, B-factor six wide)
+        for line in self.records:
+            self.assertNotIn("\t", line)
+            for a, b in ((30, 38), (38, 46), (46, 54), (54, 60), (60, 66)):
+                float(line[a:b])
+        dums = [float(l[46:54]) for l in self.records if l[17:20] == "DUM"]
+        self.assertGreater(len(dums), 100)
+        # The dummy membranes sit about the membrane centres at +/- half the separation
+        self.assertAlmostEqual(max(dums), -min(dums), delta=5)
 
     def test_long_axis_start(self):
         self.assertIn("Long-axis start added", self.log)
