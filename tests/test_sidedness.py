@@ -89,13 +89,39 @@ class TestSidedness(unittest.TestCase):
                   num + list(range(num[-1] + 1, num[-1] + 31)), ch + ["A"] * 30)
         self.assertEqual(side(merged)[0], 1)
 
-    def test_helical_protein_is_left_alone(self):
-        # A helical bundle (1.5 A rise per residue, 5.5 A two residues apart) has no beta-barrel rule to apply
-        t = np.arange(60)
-        xyz = np.column_stack([2.3 * np.cos(t * 1.745), 2.3 * np.sin(t * 1.745), -40 + 1.5 * t])
-        s, reasons, warning = side((xyz, ["BB"] * 60, ["LEU"] * 60, list(t + 1), ["A"] * 60))
-        self.assertEqual(s, 0)
-        self.assertEqual(reasons, [])
+    def test_positive_inside(self):
+        # Seven helices across the membrane (1.5 A rise per residue, 5.5 A two residues apart) joined by loops, with
+        # Lys/Arg in the loops at -z: the cytoplasmic side (-l) is already down
+        def bundle(k_down=8, k_up=1):
+            pts, names = [], []
+            for h in range(7):
+                cx, cy = 10 * np.cos(h), 10 * np.sin(h)
+                t = np.arange(26)
+                zs = -19 + 1.5 * t if h % 2 == 0 else 19 - 1.5 * t
+                pts += [(cx + 2.3 * np.cos(1.745 * j), cy + 2.3 * np.sin(1.745 * j), z) for j, z in zip(t, zs)]
+                names += ["LEU"] * 26
+            xyz = np.array(pts)
+            names = np.array(names)
+            down = np.where(xyz[:, 2] < -15)[0]
+            up = np.where(xyz[:, 2] > 15)[0]
+            names[down[:k_down]] = "LYS"
+            names[up[:k_up]] = "ARG"
+            n = len(xyz)
+            return xyz, ["BB"] * n, list(names), list(range(1, n + 1)), ["A"] * n
+        s, reasons, warning = side(bundle())
+        self.assertEqual(s, 1)
+        self.assertIn("helical: 8 Lys/Arg within 1 nm of the membrane at -z, 1 at +z", reasons)
+        self.assertEqual(side(turned(bundle()))[0], -1)
+        # Too few, or too even, to decide (as for KcsA without its cytoplasmic domains)
+        self.assertEqual(side(bundle(k_down=3, k_up=1))[0], 0)
+        self.assertEqual(side(bundle(k_down=7, k_up=4))[0], 0)
+        # Lipid anchors do not decide for a helical protein: in the inner membrane they would be at +z (-u)
+        xyz, names, resn, num, ch = bundle(k_down=0, k_up=0)
+        anchor = [(np.array([40.0, 3.0 * k, -8.0]), b) for k in range(4) for b in ("BB", "SC1", "C1A", "C2A")]
+        anchored = (np.vstack([xyz, [a[0] for a in anchor]]), names + [a[1] for a in anchor],
+                    resn + ["CYST"] * len(anchor), num + [1000 + k for k in range(4) for _ in range(4)],
+                    ch + ["B"] * len(anchor))
+        self.assertEqual(side(anchored)[0], 0)
 
     def test_lipid_anchors(self):
         # Triacyl Cys tails in the lower leaflet (as PqiC): periplasmic side down; in the upper leaflet: turn over

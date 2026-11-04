@@ -151,17 +151,23 @@ sharding0 = jax.sharding.NamedSharding(mesh0, jax.sharding.PartitionSpec('x'))
 devices = jax.devices()
 
 # BEGIN SIDEDNESS (also read by tests/test_sidedness.py; keep this block self-contained, using only numpy)
-# Which way up an outer-membrane protein goes (-side auto). The membrane does not tell MemPrO which side is which, so
-# the output is turned over (180 degrees about x) where the protein shows its periplasmic side is at +z; it is then
-# at -z, with the extracellular side up (Insane4MemPrO -u, e.g. KLA). The rules, strongest first:
+# Which way up a membrane protein goes (-side auto). The membrane does not tell MemPrO which side is which, so the
+# output is turned over (180 degrees about x) where the protein shows its sides the wrong way up. The convention is
+# Insane4MemPrO's: -u is the extracellular (non-cytoplasmic) side, -l the cytoplasmic one, at -z, in every membrane
+# (in an organelle the side positive-inside points to, e.g. the matrix or stroma; in the outer membrane, the periplasm).
+# Proteins with beta-barrels or lipid anchors but no helices across the membrane (outer-membrane proteins and
+# lipoproteins), strongest rule first:
 #   lipid anchors (triacyl Cys and the like) sit in the periplasmic leaflet of the outer membrane;
 #   the last strand of a beta-barrel runs into the periplasm (the C-terminal beta-signal BAM recognises), so where
 #   a barrel chain finally leaves the membrane is periplasmic;
 #   only if neither applies: a beta-barrel's extracellular loops are longer than its periplasmic turns (at least
 #   SIDE_LOOP_RATIO times, by median). TolC breaks this rule (its periplasmic "loops" are the helical tube), which is
 #   why it only decides when the C-terminal rule cannot.
-# Proteins with none of these (helical membrane proteins, or a lipoprotein whose anchor is not in the model) are left
-# as MemPrO places them, and so are proteins whose anchors and C-terminal strands disagree.
+# Helical membrane proteins: positive-inside. Lys and Arg within SIDE_FLANK of the membrane are on the cytoplasmic
+# side, if one side has at least SIDE_PI_RATIO times as many and SIDE_PI_MIN more. A lipid anchor does not say which
+# side a helical protein faces, as it is periplasmic in either membrane (-l in the outer, -u in the inner).
+# Proteins no rule decides (a truncated channel without its charged cytoplasmic parts, a lipoprotein whose anchor is
+# not in the model), or whose anchors and C-terminal strands disagree, are left as MemPrO places them.
 import numpy as np
 
 SIDE_LIPID_ANCHORS = {"CYST","CYSD","CYSP","CYSM","CYSK","CYSL","CYSF","CYSG","GLYM"}
@@ -176,6 +182,10 @@ SIDE_BREAK = 7.0
 # Membrane backbone beads a segment needs before it counts as part of a barrel
 SIDE_MIN_TM = 10
 SIDE_LOOP_RATIO = 1.5
+# Positive-inside: Lys/Arg backbone beads within SIDE_FLANK (A) beyond the hydrophobic core on each side
+SIDE_FLANK = 10.0
+SIDE_PI_RATIO = 2.0
+SIDE_PI_MIN = 3
 
 def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 	"""
@@ -192,7 +202,7 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 	sign = lambda down,up: 0 if down == up else (1 if down > up else -1)
 	reasons,strong = [],{}
 
-	# Lipid anchors in or near the membrane
+	# Lipid anchors in or near the membrane (used below unless the protein crosses the membrane with helices)
 	lipid = {}
 	for i,(a,r,key) in enumerate(zip(atomnames,resnames,residue)):
 		if a in SIDE_BACKBONE or a.startswith("H"):
@@ -202,15 +212,10 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 		if named or extra:
 			lipid.setdefault(key,[]).append(xyz[i,2])
 	anchor_z = [np.mean(z) for z in lipid.values() if abs(np.mean(z)) < half+10]
-	if anchor_z:
-		down = sum(z < 0 for z in anchor_z)
-		reasons.append("%d lipid anchor(s) at -z, %d at +z"%(down,len(anchor_z)-down))
-		if sign(down,len(anchor_z)-down):
-			strong["anchors"] = sign(down,len(anchor_z)-down)
 
 	# Backbone segments, split at chain breaks; the beta-strand segments that cross the membrane
 	bb = np.array([i for i,a in enumerate(atomnames) if a in ("BB","CA")],dtype=int)
-	exits,loops = [0,0],{1:[],-1:[]}
+	exits,loops,helices,barrels = [0,0],{1:[],-1:[]},0,0
 	if len(bb) > 2:
 		p = xyz[bb]
 		new = np.r_[True,(np.linalg.norm(np.diff(p,axis=0),axis=1) > SIDE_BREAK)|(np.diff(np.array(resnums)[bb]) < 0)|(np.array(chains)[bb][1:] != np.array(chains)[bb][:-1])]
@@ -222,8 +227,12 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 			if tm.sum() < SIDE_MIN_TM:
 				continue
 			pair = tm[2:]&tm[:-2]
-			if pair.sum() < SIDE_MIN_TM//2 or np.median(np.linalg.norm(q[2:]-q[:-2],axis=1)[pair]) < SIDE_STRAND_RISE:
+			if pair.sum() < SIDE_MIN_TM//2:
 				continue
+			if np.median(np.linalg.norm(q[2:]-q[:-2],axis=1)[pair]) < SIDE_STRAND_RISE:
+				helices += 1
+				continue
+			barrels += 1
 			# Where the segment last leaves the membrane, if it does (one ending in the membrane is a gap)
 			last = np.where(tm)[0][-1]
 			if last+1 < len(z):
@@ -234,6 +243,22 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 			for i,j in zip(starts,ends):
 				if i > 0 and j < len(z):
 					loops[1 if np.mean(z[i:j]) > 0 else -1].append(j-i)
+	if helices and not barrels:
+		#Positive-inside
+		kr = np.array([i for i in bb if resnames[i] in ("LYS","ARG")],dtype=int)
+		z = xyz[kr,2] if len(kr) else np.zeros(0)
+		up = int(((z > half)&(z < half+SIDE_FLANK)).sum())
+		down = int(((z < -half)&(z > -half-SIDE_FLANK)).sum())
+		reasons.append("helical: %d Lys/Arg within %.0f nm of the membrane at -z, %d at +z"%(down,SIDE_FLANK/10,up))
+		if max(up,down) >= SIDE_PI_RATIO*min(up,down) and abs(up-down) >= SIDE_PI_MIN:
+			return (1 if down > up else -1),reasons,None
+		return 0,reasons,None
+
+	if anchor_z:
+		down = sum(z < 0 for z in anchor_z)
+		reasons.append("%d lipid anchor(s) at -z, %d at +z"%(down,len(anchor_z)-down))
+		if sign(down,len(anchor_z)-down):
+			strong["anchors"] = sign(down,len(anchor_z)-down)
 	if exits[0] or exits[1]:
 		reasons.append("%d beta-barrel chain end(s) leave the membrane towards -z, %d towards +z"%tuple(exits))
 		if sign(*exits):
@@ -2784,7 +2809,8 @@ class MemBrain:
 					side_note = "undecided ("+evidence+"); orientation kept"
 				else:
 					rank_flip = flip*side
-					side_note = ("turned over" if side < 0 else "kept")+", periplasmic side at -z ("+evidence+")"
+					down_side = "cytoplasmic" if reasons[-1].startswith("helical") else "periplasmic"
+					side_note = ("turned over" if side < 0 else "kept")+", "+down_side+" side at -z ("+evidence+")"
 				#Every rank's verdict is in its info file; rank 1 is printed
 				if(i == 0):
 					print(("WARNING: " if side_warning else "")+"Sidedness (rank 1): "+side_note+("" if side else ". Check which way up it is and use -flip if needed."))
@@ -3649,7 +3675,7 @@ def main():
 	parser.set_defaults(curvature=False)
 	parser.add_argument("-flip","--flip",action="store_true",help="Turns the protein over (180 degrees about x) after orientation, after -side.")
 	parser.set_defaults(flip=False)
-	parser.add_argument("-side","--sidedness",choices=["auto","off"],help="Which way up the protein goes: auto puts the periplasmic side at -z (extracellular side up, for Insane4MemPrO -u) where lipid anchors or a beta-barrel show it; off keeps MemPrO's orientation (Default: auto)")
+	parser.add_argument("-side","--sidedness",choices=["auto","off"],help="Which way up the protein goes: auto puts the extracellular side up (Insane4MemPrO -u) and the cytoplasmic side (the periplasm, for outer-membrane proteins) at -z (-l), from lipid anchors and beta-barrels, or positive-inside for helical proteins; off keeps MemPrO's orientation (Default: auto)")
 	parser.set_defaults(sidedness="auto")
 	parser.add_argument("-itp","--itp_file",help="Path to force field (martini_v3.itp)")
 	parser.set_defaults(itp_file=_default_itp)

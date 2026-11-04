@@ -138,12 +138,16 @@ MemPrO is intended to be run on PDB files, and will output the following files:
 
 **-flip, --flip** — Turns the protein over on output (180° about x, so it is not mirrored), after `-side`.
 
-**-side, --sidedness** — (Default: `auto`) Which way up the protein goes. The membrane alone does not show which side is which, so with `auto` an outer-membrane protein is turned over where needed to put its periplasmic side at −z and its extracellular side up, the side Insane4MemPrO's `-u` lipids (e.g. `-u KLA`) go on. The rules, strongest first:
+**-side, --sidedness** — (Default: `auto`) Which way up the protein goes. The membrane alone does not show which side is which, so with `auto` the protein is turned over where needed to follow Insane4MemPrO's convention: `-u` is the extracellular (non-cytoplasmic) side, up, and `-l` the cytoplasmic side, at −z, in every membrane. In an organelle `-l` is the side positive-inside points to (the matrix, the stroma); in the outer membrane it is the periplasm.
+
+Outer-membrane proteins and lipoproteins (β-barrels, or lipid anchors with no helices across the membrane), strongest rule first:
 - Lipid anchors (CYST, CYSD, CYSP, CYSM, CYSK, CYSL, CYSF, CYSG, GLYM, or any four-letter CYS*/GLY* residue with beads beyond its side chain) are in the periplasmic leaflet.
 - A β-barrel chain's last strand runs into the periplasm (the C-terminal β-signal), so where a barrel chain finally leaves the membrane is periplasmic. Chain ends are found from breaks in the backbone, as `martinize2 -merge all` numbers merged chains straight through.
 - Only if neither applies: a β-barrel's extracellular loops are longer than its periplasmic turns (at least 1.5 times, by median).
 
-If the anchors and the C-terminal strands disagree, or no rule applies (helical membrane proteins, or a lipoprotein whose acylated Cys is not in the model), the orientation is kept as MemPrO found it. The log prints rank 1's decision and its evidence, and each `info_rank_N.txt` gives that rank's. On ten outer-membrane proteins (OmpA, OmpF, OmpLA, FhuA, FadL, PagP, TolC, LptD/E, BamA–BCDE, Wza) eight were put the right way up and two (PagP, Wza) were left undecided. `off` keeps MemPrO's orientation. Not used with `-dm`, where the two membranes already say which side is which.
+Helical membrane proteins: positive-inside. The side with at least twice as many Lys and Arg within 1 nm of the membrane, and at least 3 more, is cytoplasmic. Lipid anchors are not used for helical proteins: a lipoprotein's anchor is periplasmic in either membrane, which is `-l` in the outer membrane but `-u` in the inner one.
+
+If no rule decides, or the anchors and the C-terminal strands disagree, the orientation is kept as MemPrO found it. The log prints rank 1's decision and its evidence, and each `info_rank_N.txt` gives that rank's. On 22 proteins, each tested as found and turned over (OmpA, OmpF, OmpLA, FhuA, FadL, PagP, TolC, LptD/E, BamA–BCDE, Wza; LacY, GlpT, XylE, AcrB, BtuCD, MsbA, HmuUV, KcsA, MscL, AqpZ, SecYEβ, bacteriorhodopsin), 38 of 44 were put the right way up and 6 left undecided (PagP, Wza, and KcsA without its cytoplasmic domains); none was put the wrong way up. `off` keeps MemPrO's orientation. Not used with `-dm`, where the two membranes already say which side is which.
 
 **-itp, --itp_file** — Path to a Martini 3 `.itp` file. Defaults to `martini_v3.itp` in the same directory as `MemPrO.py` (or the installed package directory).
 
