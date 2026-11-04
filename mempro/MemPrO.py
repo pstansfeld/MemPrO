@@ -150,6 +150,107 @@ sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x', 'y')
 sharding0 = jax.sharding.NamedSharding(mesh0, jax.sharding.PartitionSpec('x'))
 devices = jax.devices()
 
+# BEGIN SIDEDNESS (also read by tests/test_sidedness.py; keep this block self-contained, using only numpy)
+# Which way up an outer-membrane protein goes (-side auto). The membrane does not tell MemPrO which side is which, so
+# the output is turned over (180 degrees about x) where the protein shows its periplasmic side is at +z; it is then
+# at -z, with the extracellular side up (Insane4MemPrO -u, e.g. KLA). The rules, strongest first:
+#   lipid anchors (triacyl Cys and the like) sit in the periplasmic leaflet of the outer membrane;
+#   the last strand of a beta-barrel runs into the periplasm (the C-terminal beta-signal BAM recognises), so where
+#   a barrel chain finally leaves the membrane is periplasmic;
+#   only if neither applies: a beta-barrel's extracellular loops are longer than its periplasmic turns (at least
+#   SIDE_LOOP_RATIO times, by median). TolC breaks this rule (its periplasmic "loops" are the helical tube), which is
+#   why it only decides when the C-terminal rule cannot.
+# Proteins with none of these (helical membrane proteins, or a lipoprotein whose anchor is not in the model) are left
+# as MemPrO places them, and so are proteins whose anchors and C-terminal strands disagree.
+import numpy as np
+
+SIDE_LIPID_ANCHORS = {"CYST","CYSD","CYSP","CYSM","CYSK","CYSL","CYSF","CYSG","GLYM"}
+# Side chain beads/atoms of Cys and Gly: a CYS*/GLY* residue with others carries a lipid
+SIDE_ANCHOR_SIDE = {"CYS":{"SC1","CB","SG"},"GLY":set()}
+SIDE_BACKBONE = {"N","CA","C","O","OXT","BB","HN","H","HA"}
+# Distance between backbone beads two residues apart (A): about 5.5 in a helix, 6.5 in a strand
+SIDE_STRAND_RISE = 6.0
+# Consecutive backbone beads are 3.5-3.9 A apart: a longer step is a chain break or missing residues (martinize2
+# -merge all numbers merged chains straight through, so chain letters and numbers alone do not show where chains end)
+SIDE_BREAK = 7.0
+# Membrane backbone beads a segment needs before it counts as part of a barrel
+SIDE_MIN_TM = 10
+SIDE_LOOP_RATIO = 1.5
+
+def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
+	"""
+	Which way up a membrane protein should be, from its beads (xyz in A, membrane midplane at z = 0, half the
+	hydrophobic thickness in A). Returns (side, reasons, warning): side is 1 (periplasmic side already at -z), -1
+	(turn it over) or 0 (no rule applies, or the rules disagree); reasons lists the evidence.
+	"""
+	xyz = np.asarray(xyz,dtype=float)
+	atomnames = [str(a).strip() for a in atomnames]
+	resnames = [str(r).strip() for r in resnames]
+	resnums = [int(r) for r in resnums]
+	chains = [str(c) for c in chains]
+	residue = list(zip(np.cumsum([0]+[int(c != pc or r < pr) for c,pc,r,pr in zip(chains[1:],chains[:-1],resnums[1:],resnums[:-1])]).tolist(),resnums))
+	sign = lambda down,up: 0 if down == up else (1 if down > up else -1)
+	reasons,strong = [],{}
+
+	# Lipid anchors in or near the membrane
+	lipid = {}
+	for i,(a,r,key) in enumerate(zip(atomnames,resnames,residue)):
+		if a in SIDE_BACKBONE or a.startswith("H"):
+			continue
+		named = r in SIDE_LIPID_ANCHORS and a not in SIDE_ANCHOR_SIDE.get(r[:3],set())
+		extra = len(r) == 4 and r[:3] in SIDE_ANCHOR_SIDE and a not in SIDE_ANCHOR_SIDE[r[:3]]
+		if named or extra:
+			lipid.setdefault(key,[]).append(xyz[i,2])
+	anchor_z = [np.mean(z) for z in lipid.values() if abs(np.mean(z)) < half+10]
+	if anchor_z:
+		down = sum(z < 0 for z in anchor_z)
+		reasons.append("%d lipid anchor(s) at -z, %d at +z"%(down,len(anchor_z)-down))
+		if sign(down,len(anchor_z)-down):
+			strong["anchors"] = sign(down,len(anchor_z)-down)
+
+	# Backbone segments, split at chain breaks; the beta-strand segments that cross the membrane
+	bb = np.array([i for i,a in enumerate(atomnames) if a in ("BB","CA")],dtype=int)
+	exits,loops = [0,0],{1:[],-1:[]}
+	if len(bb) > 2:
+		p = xyz[bb]
+		new = np.r_[True,(np.linalg.norm(np.diff(p,axis=0),axis=1) > SIDE_BREAK)|(np.diff(np.array(resnums)[bb]) < 0)|(np.array(chains)[bb][1:] != np.array(chains)[bb][:-1])]
+		seg = np.cumsum(new)
+		for s_ in np.unique(seg):
+			q = p[seg == s_]
+			z = q[:,2]
+			tm = np.abs(z) < half
+			if tm.sum() < SIDE_MIN_TM:
+				continue
+			pair = tm[2:]&tm[:-2]
+			if pair.sum() < SIDE_MIN_TM//2 or np.median(np.linalg.norm(q[2:]-q[:-2],axis=1)[pair]) < SIDE_STRAND_RISE:
+				continue
+			# Where the segment last leaves the membrane, if it does (one ending in the membrane is a gap)
+			last = np.where(tm)[0][-1]
+			if last+1 < len(z):
+				exits[0 if np.mean(z[last+1:]) < 0 else 1] += 1
+			# Loops: runs outside the membrane between two passes through it
+			out = np.r_[False,~tm,False]
+			starts,ends = np.where(np.diff(out.astype(int)) == 1)[0],np.where(np.diff(out.astype(int)) == -1)[0]
+			for i,j in zip(starts,ends):
+				if i > 0 and j < len(z):
+					loops[1 if np.mean(z[i:j]) > 0 else -1].append(j-i)
+	if exits[0] or exits[1]:
+		reasons.append("%d beta-barrel chain end(s) leave the membrane towards -z, %d towards +z"%tuple(exits))
+		if sign(*exits):
+			strong["barrel"] = sign(*exits)
+
+	if len(set(strong.values())) > 1:
+		return 0,reasons,"the lipid anchors and the beta-barrel C-terminal strands disagree on which side is periplasmic"
+	if strong:
+		return list(strong.values())[0],reasons,None
+	if loops[1] and loops[-1]:
+		up,down = np.median(loops[1]),np.median(loops[-1])
+		reasons.append("beta-barrel loops %.0f residues at +z, %.0f at -z (median)"%(up,down))
+		if max(up,down) >= SIDE_LOOP_RATIO*max(min(up,down),1):
+			return (1 if up > down else -1),reasons,None
+	return 0,reasons,None
+# END SIDEDNESS
+
 #This is a class that deals with the pdb files and all construction of position arrays
 class PDB_helper:
 	def __init__(self,fn,use_weights,build_no,ranges,lsurf,def_surf):
@@ -2585,7 +2686,9 @@ class MemBrain:
 			x_range = (80+x_max-x_min)/10.0
 			y_range = (80+y_max-y_min)/10.0
 			z_range = (100+z_max-z_min)/10.0
-			curv_str = " -curv "+str(10*np.abs(min_curvs[i]))+",0.1,"+str(np.sign(min_curvs[i]-1e-9))
+			rank_flip = self.rank_flips[i] if i < len(self.rank_flips) else self.flip
+			#Turning the protein over turns the membrane's curvature over with it
+			curv_str = " -curv "+str(10*np.abs(min_curvs[i]))+",0.1,"+str(rank_flip*np.sign(min_curvs[i]-1e-9))
 			print("Building rank "+str(i+1)+" with Insane4MemPrO:")
 			cg_sys_dir = rank_dir+"CG_System_rank_"+str(i+1)+"/"
 			run_str = shlex.quote(sys.executable)+" "+shlex.quote(insane_path)+" "+build_args.strip()+" -o "+shlex.quote(cg_sys_dir+"CG-system.gro")+" -p "+shlex.quote(cg_sys_dir+"topol.top")+" -f "+shlex.quote(cg_sys_dir+"protein-cg.pdb")+" -x "+str(x_range)+" -y "+str(y_range)+" -z "+str(z_range)+curv_str
@@ -2598,7 +2701,7 @@ class MemBrain:
 				mt_im = (self.memt_heads+float(self.new_memt_im[i]))/10.0
 				mt_om = (self.memt_heads_om+float(self.new_memt_om[i]))/10.0
 				if(zdist > 1e-6):
-					mt_first,mt_second = (mt_om,mt_im) if self.flip > 0 else (mt_im,mt_om)
+					mt_first,mt_second = (mt_om,mt_im) if rank_flip > 0 else (mt_im,mt_om)
 					run_str += " -mt "+str(round(mt_first,3))+","+str(round(mt_second,3))
 				else:
 					run_str += " -mt "+str(round(mt_im,3))
@@ -2612,12 +2715,22 @@ class MemBrain:
 			if(err_val != 0):
 				print("WARNING: There was an error when trying to build the system. Check -bd_args are correct.")
 	#Writes a pdb using a given file as a template and replacing positions
-	def write_oriented(self,temp_fn,orient_dir,run_cmd,flip):
+	def write_oriented(self,temp_fn,orient_dir,run_cmd,flip,sidedness="auto"):
 		self.flip = flip
 		lfile = open(temp_fn,"r")
 		content = lfile.read()
 		lfile.close()
 		content = content.split("\n")
+		#Bead names, residues and chains of the beads in self.all_poses (same order), for -side
+		side_meta = []
+		for c in content:
+			if len(c) > 54 and "[" not in c and c.startswith("ATOM"):
+				pos = np.array([float(c[30:38]),float(c[38:46]),float(c[46:54])])
+				if(not np.any(np.isnan(pos))):
+					side_meta.append((c[12:16],c[17:21],int(c[22:26]),c[21]))
+		#Each rank's turn: -flip, times -1 where -side auto turns the protein over. A turn is 180 degrees about x
+		#(y and z change sign), not a mirror image
+		self.rank_flips = []
 		
 
 		mins = np.array(self.minima)
@@ -2657,6 +2770,26 @@ class MemBrain:
 			start_xydir =  position_point_jit(0,min_poses[i][2],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2]
 			
 			orient_poses = np.array(position_point_jit(min_poses[i][1],min_poses[i][2],min_poses[i][3],self.all_poses))
+			side_note = "off (-side off)"
+			rank_flip = flip
+			if(sidedness == "auto" and self.dbmem):
+				side_note = "not used with -dm (the membranes say which side is which)"
+			elif(sidedness == "auto"):
+				names,resns,nums,chs = zip(*side_meta)
+				side,reasons,side_warning = membrane_side(orient_poses,names,resns,nums,chs,float(npmem_im[i])/2)
+				evidence = "; ".join(reasons) if reasons else "no lipid anchors or beta-barrel"
+				if(side_warning):
+					side_note = "undecided, "+side_warning+" ("+evidence+"); orientation kept"
+				elif(side == 0):
+					side_note = "undecided ("+evidence+"); orientation kept"
+				else:
+					rank_flip = flip*side
+					side_note = ("turned over" if side < 0 else "kept")+", periplasmic side at -z ("+evidence+")"
+				#Every rank's verdict is in its info file; rank 1 is printed
+				if(i == 0):
+					print(("WARNING: " if side_warning else "")+"Sidedness (rank 1): "+side_note+("" if side else ". Check which way up it is and use -flip if needed."))
+			self.rank_flips.append(rank_flip)
+			infos.write("Sidedness (-side): "+side_note+"\n")
 			ranks.write(str(i+1)+"\t "+str(form(min_pots[i]))+"\t"+str(form(min_hits[i]))+"\t"+str(form(self.re_rank_pots[i]))+"\t"+str(form(self.re_rank_disses[i]))+"\t"+str(form(self.re_rank_vals[i]))+"\n")#+"\t"+str(pm)+"\t"+str(mm)+"\n")
 			new_file = open(os.path.join(rank_dir,"oriented_rank_"+str(i+1)+".pdb"),"w")
 			if(self.build_no > i):
@@ -2687,8 +2820,8 @@ class MemBrain:
 					pos = np.array([float(xpos.strip()),float(ypos.strip()),float(zpos.strip())])
 					if(not np.any(np.isnan(pos))):
 						xp = "%.3f" % (orient_poses[count][0])
-						yp = "%.3f" % (orient_poses[count][1])
-						zp = "%.3f" % (flip*orient_poses[count][2])
+						yp = "%.3f" % (rank_flip*orient_poses[count][1])
+						zp = "%.3f" % (rank_flip*orient_poses[count][2])
 						if(atom_num != prev_num):
 							if(neww):
 								strr += three2one(res)
@@ -2764,8 +2897,8 @@ class MemBrain:
 							count_str = (6-len(str(count)))*" "+str(count)
 							c = "ATOM "+count_str+" BB   DUM Z   1	   0.000   0.000  15.000  1.00  0.00" 
 							xp = "%.3f" % (pos[0]+xk*norma[0])
-							yp = "%.3f" % (pos[1]+xk*norma[1])
-							zp = "%.3f" % (flip*(pos[2]+xk*norma[2]))
+							yp = "%.3f" % (rank_flip*(pos[1]+xk*norma[1]))
+							zp = "%.3f" % (rank_flip*(pos[2]+xk*norma[2]))
 							new_c = c[:30]+(" "*(8-len(xp)))+xp+(" "*(8-len(yp)))+yp+(" "*(8-len(zp))) +zp+c[54:]+"\n"	
 							new_file.write(new_c)
 							all_orients.write(new_c)
@@ -2803,9 +2936,9 @@ class MemBrain:
 					count_str = (6-len(str(count)))*" "+str(count)
 					c = "ATOM "+count_str+" BB   PGL Z   1	   0.000   0.000  15.000  1.00  0.00" 
 					xp = "%.3f" % (pos[0])
-					yp = "%.3f" % (pos[1])
-					zpa = np.format_float_positional(flip*(pg_pos+self.pg_thickness/2),precision=3)
-					zpb = np.format_float_positional(flip*(pg_pos-self.pg_thickness/2),precision=3)
+					yp = "%.3f" % (rank_flip*pos[1])
+					zpa = np.format_float_positional(rank_flip*(pg_pos+self.pg_thickness/2),precision=3)
+					zpb = np.format_float_positional(rank_flip*(pg_pos-self.pg_thickness/2),precision=3)
 					zpa += "0"*(3-len((zpa.split(".")[1])))
 					zpb += "0"*(3-len((zpb.split(".")[1])))
 					new_c = c[:30]+(" "*(8-len(xp)))+xp+(" "*(8-len(yp)))+yp+(" "*(8-len(zpa))) +zpa+c[54:]+"\n"	
@@ -3514,8 +3647,10 @@ def main():
 	parser.set_defaults(use_weights=False)
 	parser.add_argument("-c","--curvature",action="store_true",help="Toggle curvature minimisation.")
 	parser.set_defaults(curvature=False)
-	parser.add_argument("-flip","--flip",action="store_true",help="Flips protein in the Z-axis after orientation.")
+	parser.add_argument("-flip","--flip",action="store_true",help="Turns the protein over (180 degrees about x) after orientation, after -side.")
 	parser.set_defaults(flip=False)
+	parser.add_argument("-side","--sidedness",choices=["auto","off"],help="Which way up the protein goes: auto puts the periplasmic side at -z (extracellular side up, for Insane4MemPrO -u) where lipid anchors or a beta-barrel show it; off keeps MemPrO's orientation (Default: auto)")
+	parser.set_defaults(sidedness="auto")
 	parser.add_argument("-itp","--itp_file",help="Path to force field (martini_v3.itp)")
 	parser.set_defaults(itp_file=_default_itp)
 	parser.add_argument("-insane","--insane_path",help="Path to Insane4MemPrO.py")
@@ -3806,7 +3941,7 @@ def main():
 		print("Done")
 
 	print("Writing data...")
-	Mem_test.write_oriented(fn,orient_dir," ".join(sys.argv),fliper)
+	Mem_test.write_oriented(fn,orient_dir," ".join(sys.argv),fliper,args.sidedness)
 	print("Done")
 
 	if(build_system > 0):
