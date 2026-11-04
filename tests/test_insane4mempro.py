@@ -87,6 +87,23 @@ class TestDeformation(unittest.TestCase):
                 self.assertAlmostEqual(rise, 0.45, delta=0.1, msg=grid)
 
 
+class TestDeformationLimits(unittest.TestCase):
+    def test_def_refused_with_two_membranes(self):
+        # MemPrOD deformations are for one flat membrane; with -ps they would be applied to both membranes
+        data = tempfile.mkdtemp(prefix="insane_def_")
+        TMP_DIRS.append(data)
+        lin = np.linspace(-50, 50, 10)
+        for name, arr in (("Membrane_pos", np.stack([np.zeros((10, 10)), np.full((10, 10), 30.0)], axis=-1)),
+                          ("Rotation_matrix", np.eye(3)), ("Z_change", np.array(0.0)), ("Xlin", lin), ("Ylin", lin)):
+            np.savez(os.path.join(data, name + ".npz"), arr)
+        tmp = tempfile.mkdtemp(prefix="insane_test_")
+        TMP_DIRS.append(tmp)
+        out = subprocess.run([sys.executable, INSANE, "-x", "10", "-y", "10", "-z", "30", "-ps", "8", "-l", "POPE", "-sol", "W",
+                              "-def", data + "/", "-o", "sys.gro", "-p", "topol.top"], cwd=tmp, capture_output=True, text=True)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("-def (MemPrOD deformations) cannot be used with -ps", out.stdout + out.stderr)
+
+
 class TestFlatFilling(unittest.TestCase):
     def test_flat_leaflet_gets_box_area_over_apl(self):
         log, counts, _ = build(["-x", "12", "-y", "10", "-z", "10", "-l", "POPE"])
@@ -120,8 +137,10 @@ class TestFlatFilling(unittest.TestCase):
         counts_rings, rings = contacts("circular")
         lipids = ("KLA", "POPE", "POPG", "CARD")
         self.assertEqual([counts_square[k] for k in lipids], [counts_rings[k] for k in lipids])
-        self.assertLessEqual(max(square), 5)
-        self.assertGreater(rings[0], 10 * max(square[0], 1))
+        # Lipids are placed with random rotations, so the square grid's few contacts vary between builds (0-7 seen);
+        # rings leave over a hundred in the KLA leaflet
+        self.assertLessEqual(max(square), 15)
+        self.assertGreater(rings[0], 5 * max(square[0], 1))
 
     def test_explicit_area(self):
         log, counts, _ = build(["-x", "10", "-y", "10", "-z", "10", "-l", "POPE", "-a", "0.7"])

@@ -3534,6 +3534,11 @@ SpGrid =  jnp.array(SphereGridAng(20,np.pi/2))
 #print(SpGrid)
 
 memdata = options["-def"].value
+#MemPrOD deformations are for one flat membrane: with two membranes they would be applied to both, and MemPrOD's z
+#shift would move the protein off the positions MemPrO found
+if memdata and (float(options["-ps"].value) > 1e-5 or abs(float(options["-curv"].value.split(",")[0])) > 1e-9):
+	print("ERROR: -def (MemPrOD deformations) cannot be used with -ps (two membranes) or -curv (a curved membrane)")
+	exit(1)
 if memdata:
 	mdata = np.load(memdata+"Membrane_pos.npz")
 	membrane_pos = mdata["arr_0"]
