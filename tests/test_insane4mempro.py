@@ -59,6 +59,34 @@ def leaflet_areas(log):
     return [tuple(map(float, m)) for m in re.findall(r"Lipid area \(nm\^2\): upper leaflet (\S+), lower leaflet (\S+)", log)]
 
 
+class TestDeformation(unittest.TestCase):
+    def test_square_grid_follows_memprod_deformation(self):
+        # A synthetic MemPrOD output (-def): the midplane raised by 5 A in a bump at the box centre, constant thickness.
+        # Lipids on the default square grid follow it, as on rings: the deformation is applied per lipid from its x, y.
+        data = tempfile.mkdtemp(prefix="insane_def_")
+        TMP_DIRS.append(data)
+        lin = np.linspace(-50, 50, 34)
+        gx, gy = np.meshgrid(lin, lin, indexing="ij")
+        pos = np.stack([5.0 * np.exp(-(gx ** 2 + gy ** 2) / (2 * 15.0 ** 2)), np.full(gx.shape, 30.0)], axis=-1)
+        for name, arr in (("Membrane_pos", pos), ("Rotation_matrix", np.eye(3)), ("Z_change", np.array(0.0)),
+                          ("Xlin", lin), ("Ylin", lin)):
+            np.savez(os.path.join(data, name + ".npz"), arr)
+        for grid in ([], ["-grid", "circular"]):
+            log, counts, gro = build(["-x", "10", "-y", "10", "-z", "12", "-l", "POPE", "-def", data + "/"] + grid, ions=False)
+            with open(gro) as f:
+                lines = f.read().split("\n")
+            n = int(lines[1])
+            rows = [r for r in lines[2:2 + n] if r[5:10].strip() == "POPE" and r[10:15].strip() == "PO4"]
+            box = np.array([float(v) for v in lines[2 + n].split()[:3]])
+            xyz = np.array([[float(r[20:28]), float(r[28:36]), float(r[36:44])] for r in rows])
+            r = np.hypot(xyz[:, 0] - box[0] / 2, xyz[:, 1] - box[1] / 2)
+            mid = np.median(xyz[:, 2])
+            for leaf in (xyz[:, 2] > mid, xyz[:, 2] < mid):
+                rise = xyz[leaf & (r < 1.0), 2].mean() - xyz[leaf & (r > 4.0), 2].mean()
+                # 0.5 nm at the centre, falling to about 0.47 nm on average within 1 nm and under 0.03 nm beyond 4 nm
+                self.assertAlmostEqual(rise, 0.45, delta=0.1, msg=grid)
+
+
 class TestFlatFilling(unittest.TestCase):
     def test_flat_leaflet_gets_box_area_over_apl(self):
         log, counts, _ = build(["-x", "12", "-y", "10", "-z", "10", "-l", "POPE"])
