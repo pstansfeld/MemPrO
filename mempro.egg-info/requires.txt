@@ -1,0 +1,5 @@
+jax[cpu]<0.13,>=0.6.0
+matplotlib>=3.8.4
+
+[gpu]
+jax[cuda12]<0.13,>=0.6.0

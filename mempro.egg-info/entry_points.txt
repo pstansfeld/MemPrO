@@ -1,0 +1,3 @@
+[console_scripts]
+mempro = mempro._cli:main
+mempro-leaflets = mempro.leaflet_check:main
