@@ -4,12 +4,10 @@ Leaflet area matching for membranes built with Insane4MemPrO.
 Reads one or more frames (.gro) from a short NPT equilibration and, for each
 membrane, compares the area available to each leaflet (box area minus the
 protein's footprint in that leaflet) with the area its lipids should occupy
-(from the Insane4MemPrO area-per-lipid table). The footprint is the one
-Insane4MemPrO -footprint map builds with, from the leaflet's own geometry in
-the frame. Lipids cannot flip between leaflets in Martini (except sterols), so
-a difference in how stretched the two leaflets are persists, and can induce
-curvature. The suggested -asym moves lipids so both leaflets are equally
-strained.
+(from the Insane4MemPrO area-per-lipid table). Lipids cannot flip between
+leaflets in Martini (except sterols), so a difference in how stretched the two
+leaflets are persists, and can induce curvature. The suggested -asym moves
+lipids so both leaflets are equally strained.
 
 This is area matching, as used for asymmetric LPS outer membranes. It is an
 approximation to setting zero differential stress between the leaflets
@@ -28,27 +26,17 @@ AMINO_ACIDS = {"ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "I
                "PRO", "SER", "THR", "TRP", "TYR", "VAL", "HSD", "HSE", "HSP", "HIE", "HID", "HIP"}
 
 
-def load_insane_block(name, insane_path=None):
-    """Loads a self-contained block (# BEGIN name ... # END name) from Insane4MemPrO.py so both use the same code."""
+def load_lipid_areas(insane_path=None):
+    """Loads the area-per-lipid table block from Insane4MemPrO.py so both use the same values."""
     if insane_path is None:
         insane_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Insane4MemPrO.py")
     with open(insane_path) as f:
         src = f.read()
-    start = src.index("# BEGIN " + name)
-    end = src.index("# END " + name)
+    start = src.index("# BEGIN LIPID AREAS")
+    end = src.index("# END LIPID AREAS")
     ns = {}
     exec(src[start:end], ns)
     return ns
-
-
-def load_lipid_areas(insane_path=None):
-    """Loads the area-per-lipid table block from Insane4MemPrO.py so both use the same values."""
-    return load_insane_block("LIPID AREAS", insane_path)
-
-
-def load_footprint(insane_path=None):
-    """Loads the protein footprint block (-footprint map) from Insane4MemPrO.py."""
-    return load_insane_block("FOOTPRINT", insane_path)
 
 
 def read_gro_frames(paths):
@@ -96,60 +84,7 @@ def footprint(points_xy, box_xy, radius, spacing=0.1):
     return (d < radius).mean() * box_xy[0] * box_xy[1]
 
 
-def leaflet_split(z, min_fraction=0.2):
-    """
-    Where to split sorted head heights z into two leaflets: the index of the last lipid of the lower leaflet. This is
-    the largest gap in height that leaves at least min_fraction of the lipids on each side, so that a lipid pulled out
-    of the membrane joins the nearest leaflet instead of becoming a leaflet of its own.
-    """
-    n = len(z)
-    if n < 2:
-        return 0
-    gaps = np.diff(z)
-    below = np.arange(1, n)
-    ok = (below >= min_fraction * n) & (n - below >= min_fraction * n)
-    if ok.any():
-        gaps = np.where(ok, gaps, -np.inf)
-    return int(np.argmax(gaps))
-
-
-def membrane_groups(order, z, gap=5.5, min_lipids=10, min_fraction=0.02):
-    """
-    Lipids (indices sorted by head height z) split into membranes at gaps over 'gap' nm. Groups too small to be a
-    membrane (lipids that have left it) join the nearest neighbouring group.
-    """
-    groups = np.split(order, np.where(np.diff(z[order]) > gap)[0] + 1)
-    small = max(min_lipids, min_fraction * len(order))
-    while len(groups) > 1:
-        sizes = [len(g) for g in groups]
-        k = int(np.argmin(sizes))
-        if sizes[k] >= small:
-            break
-        if k == 0:
-            j = 1
-        elif k == len(groups) - 1:
-            j = k - 1
-        else:
-            below = z[groups[k][0]] - z[groups[k - 1][-1]]
-            above = z[groups[k + 1][0]] - z[groups[k][-1]]
-            j = k - 1 if below <= above else k + 1
-        lo, hi = min(j, k), max(j, k)
-        groups[lo:hi + 1] = [np.concatenate([groups[lo], groups[hi]])]
-    return groups
-
-
-def phosphate_z(mols, xyz, atomname):
-    """z of each lipid's first PO bead (its phosphate), otherwise its first bead."""
-    z = []
-    for m in mols:
-        po = [i for i in m if atomname[i].startswith("PO")]
-        z.append(xyz[po[0] if po else m[0], 2])
-    return np.array(z)
-
-
-def analyse_frame(frame, areas, radius, lipid_names=None, fp=None):
-    """Leaflet areas of each membrane in a frame. With fp (the footprint block) the protein footprint is that of
-    -footprint map; otherwise it is the largest protein cross-section in 0.5 nm slices (-footprint section)."""
+def analyse_frame(frame, areas, radius, lipid_names=None):
     resid, resname, atomname, xyz, box = frame
     is_prot = np.isin(resname, list(AMINO_ACIDS))
     if lipid_names:
@@ -163,40 +98,30 @@ def analyse_frame(frame, areas, radius, lipid_names=None, fp=None):
     # and leaflets at the largest gap within a membrane (this also works for LPS, whose last beads are sugars)
     heads = np.array([xyz[m[0]] for m in lipids])
     order = np.argsort(heads[:, 2])
-    groups = membrane_groups(order, heads[:, 2])
+    breaks = np.where(np.diff(heads[order, 2]) > 5.5)[0]
+    groups = np.split(order, breaks + 1)
     results = []
     for g in groups:
         hz = heads[g, 2]
-        split = leaflet_split(hz)
+        split = np.argmax(np.diff(hz)) if len(g) > 1 else 0
         lower, upper = g[:split + 1], g[split + 1:]
         z_up = np.mean(heads[upper, 2]) if len(upper) else hz.max()
         z_lo = np.mean(heads[lower, 2]) if len(lower) else hz.min()
         mid = (z_up + z_lo) / 2
         prot = xyz[is_prot]
-        maps = None
-        if fp is not None:
-            # Leaflets span from the midplane to their mean phosphate plane in this frame
-            pz = phosphate_z([lipids[i] for i in g], xyz, atomname)
-            pz_up, pz_lo = pz[split + 1:], pz[:split + 1]
-            half_up = np.mean(pz_up) - mid if len(pz_up) else z_up - mid
-            half_lo = mid - np.mean(pz_lo) if len(pz_lo) else mid - z_lo
-            maps = fp["footprint_maps"](prot, fp["fp_bead_radii"](atomname[is_prot], resname[is_prot]), box[:2], mid, half_up, half_lo)
         leaf = {}
         for label, sel, z0, z1 in (("upper", upper, mid, z_up + 0.5), ("lower", lower, z_lo - 0.5, mid)):
-            if maps is not None:
-                fp_area = maps[label]["footprint"]
-            else:
-                # Largest protein cross-section in 0.5 nm slices from the midplane to just beyond the headgroups: the
-                # cross-section of transmembrane helices (projecting the whole leaflet would over-count tilted ones), or
-                # the area covered by a domain resting on the headgroups, where no lipid fits underneath
-                edges = np.linspace(z0, z1, max(2, int(round((z1 - z0) / 0.5)) + 1))
-                fp_area = np.max([footprint(prot[(prot[:, 2] > a) & (prot[:, 2] < b)][:, :2], box[:2], radius)
-                                  for a, b in zip(edges[:-1], edges[1:])])
+            # Largest protein cross-section in 0.5 nm slices from the midplane to just beyond the headgroups: the
+            # cross-section of transmembrane helices (projecting the whole leaflet would over-count tilted ones), or
+            # the area covered by a domain resting on the headgroups, where no lipid fits underneath
+            edges = np.linspace(z0, z1, max(2, int(round((z1 - z0) / 0.5)) + 1))
+            fp = np.max([footprint(prot[(prot[:, 2] > a) & (prot[:, 2] < b)][:, :2], box[:2], radius)
+                          for a, b in zip(edges[:-1], edges[1:])])
             counts = {}
             for n in names[sel]:
                 counts[n] = counts.get(n, 0) + 1
             ref = sum(areas["get_apl"](n) * c for n, c in counts.items())
-            leaf[label] = {"n": len(sel), "counts": counts, "free": box[0] * box[1] - fp_area, "protein": fp_area, "ref": ref}
+            leaf[label] = {"n": len(sel), "counts": counts, "free": box[0] * box[1] - fp, "protein": fp, "ref": ref}
         results.append({"z": mid, "box": box[0] * box[1], "leaflets": leaf})
     return results
 
@@ -207,11 +132,9 @@ def main(argv=None):
     parser.add_argument("-apl", action="append", default=[], help="Area per lipid override NAME:AREA (as in Insane4MemPrO)")
     parser.add_argument("-temp", type=float, default=None, help="Temperature (K) for the built-in areas (as in Insane4MemPrO)")
     parser.add_argument("-apl_ff", choices=["exp", "m3"], default="exp", help="Built-in areas: exp or m3 (as in Insane4MemPrO)")
-    parser.add_argument("-footprint", choices=["map", "section"], default="map",
-                        help="Protein footprint: map (as Insane4MemPrO -footprint map) or section (largest cross-section in 0.5 nm slices)")
-    parser.add_argument("-radius", type=float, default=0.26, help="Protein bead radius (nm) for -footprint section (Default: 0.26, a Martini bead)")
+    parser.add_argument("-radius", type=float, default=0.26, help="Protein bead radius (nm) for its cross-section (Default: 0.26, a Martini bead)")
     parser.add_argument("-lipids", default=None, help="Comma-separated lipid residue names (default: all residues that are not protein, water or ions)")
-    parser.add_argument("-insane", default=None, help="Path to Insane4MemPrO.py to take the area table and footprint from (default: the installed copy)")
+    parser.add_argument("-insane", default=None, help="Path to Insane4MemPrO.py to take the area table from (default: the installed copy)")
     args = parser.parse_args(argv)
 
     areas = load_lipid_areas(args.insane)
@@ -222,8 +145,7 @@ def main(argv=None):
         areas["lipid_apl"][name] = float(val)
     lipid_names = set(args.lipids.split(",")) if args.lipids else None
 
-    fp = load_footprint(args.insane) if args.footprint == "map" else None
-    frames = [analyse_frame(f, areas, args.radius, lipid_names, fp) for f in read_gro_frames(args.files)]
+    frames = [analyse_frame(f, areas, args.radius, lipid_names) for f in read_gro_frames(args.files)]
     if not frames:
         sys.exit("No frames read")
     print("Read %d frame(s)" % len(frames))
