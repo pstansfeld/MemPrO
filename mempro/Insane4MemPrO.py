@@ -269,10 +269,12 @@ lipidsa.update({	  #  1	2   3   4   5   6   7   8   9  10  11  12  13  14  15  1
 
 
 
+# KLA template: bead centres of the CHARMM36 Kdo2-lipid A in cg2at (fragments/.../KLA.pdb), x/y in units of 0.25 nm
+# scaled by 0.7 (so lipids fit at 1.67 nm^2 with random rotations), z in units of 0.3 nm (-bd)
 moltype = "LPS"
-lipidsx[moltype] = (-7.97, -8.52, -7.94, -8.14, -8.52, -7.87, -8.75, -8.77, -8.61, -8.58, -8.58, -7.69, -7.53, -7.47, -7.58, -7.45, -7.46, -7.37, -7.42, -6.88, -7.56, -7.11, -7.53, -7.26, -7.32, -7.42, -7.54, -8.07, -8.19, -8.44, -7.19, -6.72, -6.82, -6.81, -7.53, -7.74, -7.88, -7.67, -7.41, -7.86, -7.65, -7.51, -7.25, -7.68, -7.39, -7.84, -7.63, -7.18, -7.29)
-lipidsy[moltype] = (0.73, 0.52, 0.60, 0.62, 0.07, 0.51, 0.27, 0.54, 0.70, 0.96, 1.25, 0.51, 0.52, 0.58, 0.76, 0.49, 0.22, 0.10, 0.27, -0.31, -0.04, 0.72, -0.20, -0.29, -0.41, -0.51, -0.60, -0.35, -0.32, -0.13, 1.00, 1.26, 1.42, 1.75, 1.32, 1.56, 1.78, 0.33, 0.52, 0.52, 0.45, 0.85, 0.02, 0.31, -0.05, 0.19, 0.15, 0.58, -0.14)
-lipidsz[moltype] = (5.76, 5.32, 5.25, 5.44, 5.95, 4.51, 4.75, 4.25, 3.59, 2.78, 1.97, 4.00, 3.31, 2.47, 1.63, 6.12, 6.82, 6.30, 6.41, 6.10, 5.61, 5.60, 5.04, 4.41, 3.69, 2.97, 2.11, 4.54, 3.72, 2.80, 5.03, 4.58, 3.76, 2.85, 4.46, 3.68, 2.75, 7.59, 8.18, 8.03, 7.93, 7.36, 8.26, 8.81, 9.30, 9.27, 9.13, 8.95, 9.81)
+lipidsx[moltype] = (0.22, 0.15, -0.41, -0.43, -0.98, -0.64, 0.60, 1.40, 1.53, 1.00, 0.65, -0.54, -0.08, 0.52, 1.04, -0.01, -0.52, -0.10, -0.51, -0.83, 0.12, -0.49, 0.00, 0.64, 1.29, 1.22, 1.12, -0.06, -0.10, -0.08, -1.19, -1.41, -1.27, -1.11, -0.77, -0.85, -0.65, -0.42, -0.78, -0.02, -0.47, -1.20, -0.60, 1.15, 0.66, 1.14, 0.81, 0.80, 0.47)
+lipidsy[moltype] = (-0.36, -0.99, -1.11, -0.79, -1.40, -1.28, -1.09, -0.73, 0.19, 0.90, 1.13, -1.54, -0.99, -1.01, -0.94, 1.14, 0.85, 0.51, 0.55, 1.35, 0.11, 1.50, 0.17, -0.40, -0.36, 0.17, 0.67, 0.27, 0.08, -0.04, 0.36, -0.12, -0.08, -0.84, 1.18, 1.18, 1.09, -0.33, 0.27, 0.20, 0.53, -0.37, 1.00, 0.16, -0.20, -0.00, -0.43, 0.65, -0.82)
+lipidsz[moltype] = (7.43, 6.90, 5.68, 6.39, 6.80, 4.71, 5.67, 5.40, 4.79, 4.34, 3.04, 3.45, 2.75, 2.03, 1.49, 5.85, 7.87, 7.00, 8.01, 6.83, 6.03, 4.86, 4.90, 4.10, 3.35, 2.33, 1.25, 3.49, 2.22, 1.00, 5.16, 3.82, 2.51, 1.87, 3.88, 2.66, 1.52, 8.70, 8.59, 8.94, 8.62, 8.10, 8.91, 8.99, 8.84, 9.72, 9.52, 8.14, 8.89)
 lipidsa.update({ "KLA":(moltype, "ZM1 ZM2 ZM3 VS1 PO1 ZM4 ZM5 CF C1F C2F C3F CE C1E C2E C3E GM1 GM2 GM3 VS2 PO2 GM4 GM5 CAB C1A C2A C3A C4A C1B C2B C3B CCD C1C C2C C3C C1D C2D C3D KR1 KR2 KR3 VS3 KS1 KS2 KR4 KR5 KR6 VS4 KS3 KS4")})
 
 
@@ -534,9 +536,10 @@ def get_apl(name):
 # core slices where it is free; a barrel open to the bulk at a single depth (e.g. a gap at the end of a porin barrel)
 # stays enclosed. Regions that are not reachable (the inside of a closed barrel) are blocked unless
 # enclosed_free (-enclosed lipids, or -ring). With enclosed_free="auto" (-enclosed auto) each such region is judged in
-# each leaflet: it gets lipids if its narrowest core slice still has FP_ENCLOSED_MIN_AREA free (room for a lipid at every
-# depth) and at least FP_ENCLOSED_MIN_HYDROPHOBIC of the residues lining it are hydrophobic (as inside a c-ring, unlike
-# the water-filled lumen of a porin or channel).
+# each leaflet it is enclosed in (a ring of lipid anchors encloses a region in one leaflet only): it gets lipids if its
+# narrowest core slice still has FP_ENCLOSED_MIN_AREA free (room for a lipid at every depth) and at least
+# FP_ENCLOSED_MIN_HYDROPHOBIC of the residues lining it are hydrophobic (as inside a c-ring, unlike the water-filled
+# lumen of a porin or channel). Lipid-anchored residues count as hydrophobic.
 import numpy as np
 from scipy import ndimage
 from scipy.spatial import cKDTree
@@ -560,6 +563,11 @@ FP_REACH_FRACTION = 0.5
 FP_ENCLOSED_MIN_AREA = 1.0
 FP_ENCLOSED_MIN_HYDROPHOBIC = 0.6
 FP_HYDROPHOBIC = {"ALA","VAL","LEU","ILE","MET","PHE","TRP","CYS","PRO"}
+# Lipid-anchored residues, which also count as hydrophobic lining: these names (CCD2MD and martinize2: acylated,
+# prenylated and myristoylated Cys and Gly), and any other four-letter CYS*/GLY* residue with beads or atoms beyond
+# its own side chain (its lipid), so an anchor without a name here is still recognised
+FP_LIPID_ANCHORS = {"CYST","CYSD","CYSP","CYSM","CYSK","CYSL","CYSF","CYSG","GLYM"}
+FP_ANCHOR_SIDE = {"CYS":{"SC1","CB","SG"},"GLY":set()}
 # Backbone atoms and beads, which do not count towards the lining of an enclosed region
 FP_BACKBONE = {"N","CA","C","O","OXT","BB"}
 # Non-protein residues that may be in a protein file (MemPrO membrane dummies, water, ions)
@@ -628,8 +636,9 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 	blocked), "free" and "footprint" (nm^2).
 	enclosed_free: False (regions the protein encloses are blocked), True (they are free) or "auto", which needs
 	lining = (atomnames, resnames, residue serial numbers) of the protein beads; "enclosed" then lists each enclosed
-	region with its "mask", "narrowest" and "mean" free area per leaflet (nm^2), lining "residues", "hydrophobic"
-	fraction, "centre" and "lipids" (whether each leaflet gets lipids there).
+	region with its "mask", and per leaflet its "masks" (the part enclosed in that leaflet), "narrowest" and "mean"
+	free area (nm^2) and "lipids" (whether it gets lipids there; all None in a leaflet the region is open in), and its
+	lining "residues", "hydrophobic" fraction and "centre".
 	"""
 	box_xy = np.asarray(box_xy,dtype=float)[:2]
 	nx,ny,px,py = fp_grid(box_xy,pixel)
@@ -682,31 +691,36 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 	free = {name:([free_at(z) for z in core],[free_at(z) for z in heads]) for name,(core,heads) in slices.items()}
 	enclosed = []
 	if enclosed_free is not True:
-		anywhere = np.zeros(shape,dtype=bool)
-		allowed = {}
+		allowed,enclosed_in = {},{}
 		for name,(core,_) in free.items():
 			nfree = np.sum(core,axis=0)
 			nmain = np.sum([fp_main_component(f) for f in core],axis=0)
 			allowed[name] = (nmain > 0)&(nmain >= FP_REACH_FRACTION*nfree)
-			anywhere |= nfree > 0
-		reachable = allowed["upper"]|allowed["lower"]
+			enclosed_in[name] = (nfree > 0)&~allowed[name]
 		if enclosed_free == "auto":
 			if lining is None:
 				raise ValueError("enclosed_free='auto' needs lining")
 			side = ~np.isin(names,list(FP_BACKBONE))&~np.char.startswith(names.astype(str),"H")
 			resname_of = dict(zip(resi.tolist(),resn.tolist()))
-			lab,n = ndimage.label(anywhere&~reachable,structure=np.ones((3,3),dtype=int))
+			anchored = {r for r,rn,a,s_ in zip(resi.tolist(),resn.tolist(),names.tolist(),side.tolist()) if rn in FP_LIPID_ANCHORS
+				or (s_ and len(rn) == 4 and rn[:3] in FP_ANCHOR_SIDE and a not in FP_ANCHOR_SIDE[rn[:3]])}
+			lab,n = ndimage.label(enclosed_in["upper"]|enclosed_in["lower"],structure=np.ones((3,3),dtype=int))
 			for c in range(1,n+1):
 				comp = lab == c
-				region = {"mask":comp,"narrowest":{},"mean":{},"lipids":{}}
+				region = {"mask":comp,"masks":{},"narrowest":{},"mean":{},"lipids":{}}
 				lined = set()
 				for name,(core,_) in free.items():
-					counts = [(f&comp).sum() for f in core]
+					leaf = comp&enclosed_in[name]
+					region["masks"][name] = leaf
+					if not leaf.any():
+						region["narrowest"][name] = region["mean"][name] = region["lipids"][name] = None
+						continue
+					counts = [(f&leaf).sum() for f in core]
 					region["narrowest"][name] = min(counts)*px*py
 					region["mean"][name] = np.mean(counts)*px*py
 					#Residues with a side chain within reach of a lipid bead in the region, slice by slice
 					for z,f in zip(slices[name][0],core):
-						fc = (f&comp).ravel()
+						fc = (f&leaf).ravel()
 						if not fc.any() or not len(pts):
 							continue
 						zf = np.ravel(z)[fc].mean()
@@ -716,15 +730,17 @@ def footprint_maps(prot_xyz,prot_r,box_xy,mid,half_up,half_lo,enclosed_free=Fals
 						reach_xy = np.sqrt(np.maximum((rads[near_z]+lipid_r+0.3)**2-(pts[near_z,2]-zf)**2,0))
 						d,_ = cKDTree(pix[fc],boxsize=box_xy).query(fp_wrap(pts[near_z,:2],box_xy))
 						lined.update(resi[near_z][d < reach_xy].tolist())
-				if max(region["mean"].values()) < 0.05:
+				if max(v for v in region["mean"].values() if v is not None) < 0.05:
 					continue
 				region["residues"] = len(lined)
-				region["hydrophobic"] = sum(resname_of[r] in FP_HYDROPHOBIC for r in lined)/len(lined) if lined else 0.0
+				region["hydrophobic"] = sum(resname_of[r] in FP_HYDROPHOBIC or r in anchored for r in lined)/len(lined) if lined else 0.0
 				region["centre"] = (float(gx[comp].mean()),float(gy[comp].mean()))
 				for name in free:
+					if region["narrowest"][name] is None:
+						continue
 					region["lipids"][name] = bool(region["narrowest"][name] >= FP_ENCLOSED_MIN_AREA and region["hydrophobic"] >= FP_ENCLOSED_MIN_HYDROPHOBIC)
 					if region["lipids"][name]:
-						allowed[name] |= comp
+						allowed[name] |= region["masks"][name]
 				enclosed.append(region)
 		free = {name:([f&allowed[name] for f in core],[f&allowed[name] for f in heads]) for name,(core,heads) in free.items()}
 
@@ -4692,10 +4708,12 @@ if lipL:
 		maps = footprint_maps(prot_coords_plain,prot_radii,box_xy,mid,half_up,half_lo,enclosed_free={"auto":"auto","lipids":True,"empty":False}[enclosed_mode],lining=prot_lining)
 		for r in maps["enclosed"]:
 			gets = [name for name in ("upper","lower") if r["lipids"][name]]
-			where = " and ".join(gets)+(" leaflets" if len(gets) == 2 else " leaflet")
-			print("Enclosed region at (%.1f, %.1f) nm: narrowest free area %.1f/%.1f nm^2 (upper/lower), %d lining residues, %.0f%% hydrophobic: %s"
-				%(r["centre"][0],r["centre"][1],r["narrowest"]["upper"],r["narrowest"]["lower"],r["residues"],100*r["hydrophobic"],
-				"lipids in the %s"%where if gets else "left empty"))
+			empty = [name for name in ("upper","lower") if r["lipids"][name] is False]
+			where = lambda names: " and ".join(names)+(" leaflets" if len(names) == 2 else " leaflet")
+			outcome = "left empty" if not gets else "lipids in the %s"%where(gets)+("; %s left empty"%where(empty) if empty else "")
+			area = "/".join("open" if r["narrowest"][name] is None else "%.1f"%r["narrowest"][name] for name in ("upper","lower"))
+			print("Enclosed region at (%.1f, %.1f) nm: narrowest free area %s nm^2 (upper/lower), %d lining residues, %.0f%% hydrophobic: %s"
+				%(r["centre"][0],r["centre"][1],area,r["residues"],100*r["hydrophobic"],outcome))
 		if enclosed_mode == "auto" and maps["enclosed"]:
 			print("  (-enclosed auto: lipids where the narrowest core slice has at least %.1f nm^2 free and at least %.0f%% of the lining residues are hydrophobic; use -enclosed lipids or empty to override)"
 				%(FP_ENCLOSED_MIN_AREA,100*FP_ENCLOSED_MIN_HYDROPHOBIC))
@@ -4747,9 +4765,9 @@ if lipL:
 		beads = [prot_coords_plain]
 		for r in maps["enclosed"]:
 			for name,sgn,half in (("upper",1,half_up),("lower",-1,half_lo)):
-				if r["lipids"][name]:
+				if r["lipids"][name] is not False:
 					continue
-				m = r["mask"][::2,::2]
+				m = r["masks"][name][::2,::2]
 				half = np.broadcast_to(np.asarray(half,dtype=float),(nx,ny))[::2,::2][m]
 				for k in np.linspace(0,1,int(np.ceil((half.mean()+FP_HEAD)/0.25))+1):
 					beads.append(np.column_stack([gx[::2,::2][m],gy[::2,::2][m],mid[::2,::2][m]+sgn*k*(half+FP_HEAD)]))

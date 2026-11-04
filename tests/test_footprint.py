@@ -148,6 +148,23 @@ class TestSyntheticShapes(unittest.TestCase):
         narrow = auto(ring(0.8, 0.3), "LEU")
         self.assertTrue(all(not r["lipids"]["upper"] for r in narrow["enclosed"]))
 
+    def test_enclosed_in_one_leaflet(self):
+        # A ring of lipid anchors in the lower leaflet only (as the triacyl Cys of the PqiC octamer): the region it
+        # encloses is judged in that leaflet and gets lipids, rather than being left as a hole
+        anchors = ring(1.5, 0.35, z0=-HALF - 0.3, z1=-0.2)
+        n = len(anchors)
+        m = maps(anchors, enclosed_free="auto", lining=(["C1A"] * n, ["CYST"] * n, np.arange(n)))
+        (region,) = m["enclosed"]
+        self.assertIsNone(region["lipids"]["upper"])
+        self.assertTrue(region["lipids"]["lower"])
+        self.assertAlmostEqual(m["upper"]["footprint"], 0.0)
+        self.assertArea(m["lower"]["footprint"], maps(anchors, enclosed_free=True)["lower"]["footprint"], rel=0.01)
+        # An anchor named in no list is recognised from its lipid beads; plain Cys side chains are not hydrophobic
+        # enough on their own to count as a lipid anchor
+        for resname, atom, lipids in (("CYSQ", "C2B", True), ("CYSQ", "SC1", False), ("SERX", "C1A", False)):
+            m = maps(anchors, enclosed_free="auto", lining=([atom] * n, [resname] * n, np.arange(n)))
+            self.assertEqual(m["enclosed"][0]["lipids"]["lower"], lipids, (resname, atom))
+
     def test_barrel_open_at_one_depth_stays_closed(self):
         # A gap in the wall at the bottom of the lower leaflet only (as at the periplasmic end of OmpF) does not let
         # lipids into the barrel in either leaflet
