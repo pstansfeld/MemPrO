@@ -34,9 +34,9 @@ MemPrO uses a GPU automatically when JAX can see one, and the CPU otherwise; use
 
 Clone the GitHub repository. Python 3.11 or later is required, along with the following packages:
 
-* JAX 0.6.0 or later (CPU), tested up to 0.11.2. Recent versions are fastest; JAX 0.11 needs Python 3.12 or later:
+* JAX 0.6.0 or later (CPU), tested up to 0.12.0. Recent versions are fastest; JAX 0.11 and later need Python 3.12 or later:
 ```
-pip install "jax[cpu]>=0.6.0,<0.12"
+pip install "jax[cpu]>=0.6.0,<0.13"
 ```
 * Matplotlib 3.8.4 or later:
 ```
@@ -136,7 +136,22 @@ MemPrO is intended to be run on PDB files, and will output the following files:
 
 **-c, --curvature** — Toggles global curvature minimisation. Not currently compatible with `-dm` or `-mt_opt`.
 
-**-flip, --flip** — Flips the protein in the Z-axis on output.
+**-flip, --flip** — Turns the protein over on output (180° about x, so it is not mirrored), after `-side`.
+
+**-la, --long_axis** — (Default: `on`; only with `-dm`) Adds a starting configuration with the membrane normals along the protein's long axis (the first principal axis of its surface beads) to the `-ng` grid. A complex spanning the periplasm sits close to that axis, which the spiral grid of starts may not come near. On MacAB–TolC the grid already finds the same orientation with `-ng 4`, so there it adds one minimisation without changing the result.
+
+**-side, --sidedness** — (Default: `auto`) Which way up the protein goes. The membrane alone does not show which side is which, so with `auto` the protein is turned over where needed to follow Insane4MemPrO's convention: `-u` is the extracellular (non-cytoplasmic) side, up, and `-l` the cytoplasmic side, at −z, in every membrane. In an organelle `-l` is the side positive-inside points to (the matrix, the stroma); in the outer membrane it is the periplasm.
+
+Outer-membrane proteins and lipoproteins (β-barrels, or lipid anchors with no helices across the membrane), strongest rule first:
+- Lipid anchors (CYST, CYSD, CYSP, CYSM, CYSK, CYSL, CYSF, CYSG, GLYM, or any four-letter CYS*/GLY* residue with beads beyond its side chain) are in the periplasmic leaflet.
+- A β-barrel chain's last strand runs into the periplasm (the C-terminal β-signal), so where a barrel chain finally leaves the membrane is periplasmic. Chain ends are found from breaks in the backbone, as `martinize2 -merge all` numbers merged chains straight through.
+- Only if neither applies: a β-barrel's extracellular loops are longer than its periplasmic turns (at least 1.5 times, by median).
+
+Helical membrane proteins: positive-inside. The side with at least twice as many Lys and Arg within 1 nm of the membrane, and at least 3 more, is cytoplasmic. Lipid anchors are not used for helical proteins: a lipoprotein's anchor is periplasmic in either membrane, which is `-l` in the outer membrane but `-u` in the inner one.
+
+A protein left as found is as likely to be wrong as right, so where these thresholds are not met the weaker evidence still decides, and the log prints a `WARNING` that the decision is low-confidence: any difference in loop length, then in Lys/Arg (β-barrels), or in Lys/Arg (helical proteins). Only a protein with no evidence at all, or whose anchors and C-terminal strands disagree, keeps MemPrO's orientation, also with a warning. Check every protein with a warning, and use `-flip` if it is wrong. The log prints rank 1's decision and its evidence, and each `info_rank_N.txt` gives that rank's.
+
+Tested on 22 proteins used to develop the rules (OmpA, OmpF, OmpLA, FhuA, FadL, PagP, TolC, LptD/E, BamA–BCDE, Wza; LacY, GlpT, XylE, AcrB, BtuCD, MsbA, HmuUV, KcsA, MscL, AqpZ, SecYEβ, bacteriorhodopsin), each as MemPrO placed it and turned over: 20 come out the right way up. Wza (an α-helical outer-membrane protein, where positive-inside does not apply) and KcsA without its cytoplasmic domains come out upside down, with the warning. On 19 further proteins not used to develop the rules (OmpX, OmpW, OmpT, NspA, FepA, Tsx, OmpG, LamB; LeuT, EmrD, NorM, FocA, YiiP, ClC-ec1, MscS, GlpG, Mhp1, BetP, GltPh) 18 came out right; FepA was wrong until segments ending at missing loop residues were no longer taken for chain ends, and is right now. `off` keeps MemPrO's orientation. Not used with `-dm`, where the two membranes already say which side is which: the cytoplasm is at −z there too (tested on MacAB–TolC, `tests/test_dual_membrane.py`).
 
 **-itp, --itp_file** — Path to a Martini 3 `.itp` file. Defaults to `martini_v3.itp` in the same directory as `MemPrO.py` (or the installed package directory).
 
@@ -248,13 +263,26 @@ Lipid names follow the [Martini 3 lipidome](https://github.com/Martini-Force-Fie
 
 **-apl** — (Optional, repeatable) Area per lipid (nm²) for one lipid type (`NAME:AREA`), overriding the built-in value. Built-in values are in `lipid_apl` in `Insane4MemPrO.py`: experimental areas from the Martini 3 lipidome benchmark where measured, otherwise the lipidome's Martini 3 single-lipid bilayer areas scaled by 1.04 (the mean ratio of experiment to those simulations, sd 0.03). Ether and plasmalogen lipids take the area of their diacyl analogue +1.5% and +5%. Lipids not listed use a value for their headgroup class (PC, PE, PG, PS, PA, SM, ceramide) or 0.6 nm².
 
-**-grid** — (Default: circular) Lipid grid for flat membranes filling the box. `circular` places lipids on concentric rings; `square` uses a square lattice that is continuous across the periodic boundaries, avoiding close contacts where clipped rings meet at the box edges. Either way a flat leaflet gets (box area)/(area per lipid) lipids before any are removed around the protein. Curved membranes and `-radius` disks always use rings.
+**-grid** — (Default: square) Lipid grid for flat membranes filling the box. `square` uses a square lattice that is continuous across the periodic boundaries; `circular` places lipids on concentric rings, the original Insane grid. Either way a flat leaflet gets (box area)/(area per lipid) lipids before any are removed around the protein, so the counts are the same. Rings do not pack evenly where neighbouring rings meet or are clipped at the box edges: in a 15 × 15 nm outer membrane (KLA over POPE:POPG:CARD 7:2:1) they gave 204 pairs of beads from different lipids closer than 0.40 nm in the KLA leaflet and 49 in the phospholipid leaflet, against 2 and 0 for `square` (with OmpA, 165 and 14 against 9 and 0; pure POPE, 86 against 0). Energy minimisation removes such contacts, so the gain is a cleaner start. Both grids follow MemPrOD deformations (`-def`) equally, as each lipid is moved to the deformed membrane at its own x, y: on LacY with MemPrOD 0.2.1, phosphates sat within 0.03–0.04 nm (rms) of the predicted head planes with either grid, with 0/5 close contacts (upper/lower) for `square` against 48/53 for `circular`. Curved membranes, pores, micelles and `-radius` disks always use rings.
 
 **-temp** — (Optional) Temperature (K) for the built-in phospholipid, cardiolipin and phosphoinositide areas, which otherwise refer to ~303 K (or the lowest temperature at which the lipid is fluid, e.g. DPPC 323 K, sphingomyelin 318 K; see `apl_ref_temp`). Areas are scaled by 0.25% per K, the typical fluid-phase expansion. LPS, sterol and hopanoid values are not scaled. Below a lipid's melting temperature (e.g. DPPC, sphingomyelin) the scaled value is not meaningful.
 
 **-apl_ff** — (Default: exp) `exp` uses experimental areas; `m3` scales the same lipids to Martini 3 equilibrium areas (0.94 × experimental, as found for PO lipids in the Martini 3 lipidome benchmark), so the box starts closer to its relaxed size. Total box area relaxes in NPT either way; this mainly reduces the initial shrinkage. Cholesterol is not corrected for condensing: it keeps a steric 0.40 nm², and as it flips between leaflets in Martini any resulting imbalance relaxes.
 
 **-balance** — (Default: off) Balance the two leaflets of each membrane after lipids clashing with the protein have been removed, by removing lipids at random from the fuller leaflet. `area` matches the total lipid area of the leaflets (number × area per lipid), `number` matches the lipid counts. The lipid area of each leaflet is always printed, with a warning if they differ by more than 5%, as a large mismatch can induce curvature. Some difference is expected where the protein occupies more of one leaflet than the other, in which case balancing would leave the fuller leaflet under-packed.
+
+**-footprint** — (Default: map) How lipids are removed around the protein. `map` measures how much of each leaflet the protein takes: each leaflet is sliced every 0.2 nm from the midplane to its phosphate plane, plus a 0.6 nm headgroup layer, and on a 0.1 nm grid lipids fill the core volume the protein leaves free (a domain resting on the headgroups excludes lipids beneath it). Each leaflet then gets exactly (free area)/(area per lipid) lipids, so the membrane is built at zero differential stress (equal area per lipid in both leaflets away from the protein), which the build log states; use `-asym` to build a different state. Lipids are placed on grid sites the protein leaves free plus sites added in the largest gaps, and a lipid whose tails cannot be traced past the protein moves to a spare site. The footprint, free area and number of lipids of each leaflet are printed. Regions lipids cannot reach in any slice (the inside of a closed barrel) are handled by `-enclosed`. `map` is for flat membranes filling the box (also with `-ps` and `-def`); curved membranes, pores, micelles and `-radius` disks use `clash`, which the log states. `clash`, the earlier method, keeps each grid site whose lipid tails can be traced past the protein (and past beads filling the regions the protein encloses, unless `-enclosed lipids` or `-ring` is given), so how much of each leaflet it removes depends on the grid, `-fudge` and whether the tracing succeeds. A lipid whose site is blocked may start up to about 0.5 nm away from it. It is kept only if that start is at least 0.55 nm from every other lipid in its leaflet; otherwise it is dropped and the number dropped is printed. This stops lipids moved off neighbouring blocked sites from landing on top of each other. `clash` does not set the leaflets' lipid counts from their free areas, so check a `clash` build with `mempro-leaflets` and rebuild with its suggested `-asym` if needed. `mempro-leaflets` uses the same footprint, so it can check a `map` build directly. See `docs/footprint-design.md`.
+
+**-mt** — (Optional) Membrane thickness (nm) between the phosphate planes for `-footprint map`, as fitted by MemPrO; one value, or two comma-separated for the `-l`/`-u` and `-lo`/`-uo` membranes. MemPrO passes it when building with `-bd`. By default each leaflet extends to the phosphate beads of its lipids as built (about 1.65 nm from the midplane for POPE).
+
+**-enclosed** — (Default: `auto`, or `lipids` with `-ring`) Whether lipids go into regions the protein encloses in the membrane, which lipids cannot reach from the bulk (the inside of a ring or barrel). The modes are:
+- `auto` judges each region in each leaflet it is enclosed in. A region gets lipids if its narrowest core slice still has at least 1 nm² free for lipid beads (room for a lipid at every depth) and at least 60% of the residues lining it are hydrophobic, as inside an ATP synthase c-ring. Lipid-anchored residues count as hydrophobic: CYST, CYSD, CYSP, CYSM, CYSK, CYSL, CYSF, CYSG and GLYM, and any other four-letter CYS*/GLY* residue with beads beyond its own side chain, so a ring of lipoprotein anchors in one leaflet (such as the PqiC octamer) is filled with lipids. A water-filled porin or channel lumen is left empty. The log prints each region's narrowest free area (`open` in a leaflet where the region joins the bulk membrane), number of lining residues and hydrophobic fraction, and the decision.
+- `lipids` puts lipids in every enclosed region (the same as `-ring`).
+- `empty` leaves every enclosed region empty (the behaviour before `-enclosed`).
+
+`auto` needs a flat membrane; on curved membranes, pores and micelles enclosed regions are left empty unless `-enclosed lipids` is given.
+
+**-fp_map** — (Optional) Write each leaflet's `-footprint map` (available area fraction and placement map, 0.1 nm pixels) to this `.npz` file.
 
 **-ps** — (Default: 0) Distance between inner and outer membrane.
 
@@ -352,7 +380,7 @@ Lipids don't flip between leaflets in Martini (except sterols), so if one leafle
 mempro-leaflets eq.gro
 ```
 
-(or `python PATH/TO/leaflet_check.py eq.gro`; several frames or a multi-frame `.gro` from `gmx trjconv` can be given and are averaged). For each membrane it reports each leaflet's available area (box area minus the protein's largest cross-section within that leaflet), the area its lipids should occupy (from the Insane4MemPrO table, with the same `-apl`, `-temp` and `-apl_ff` options), how stretched or compressed each leaflet is, and a suggested `-asym` to rebuild with so both are equally strained. This is area matching, an approximation to zero differential stress between the leaflets; the protein cross-section depends on the bead radius (`-radius`, default 0.26 nm), so treat the suggestion as a guide, rebuild and check again. `-asym` applies to every membrane in the system.
+(or `python PATH/TO/leaflet_check.py eq.gro`; several frames or a multi-frame `.gro` from `gmx trjconv` can be given and are averaged). For each membrane it reports each leaflet's available area (box area minus the protein's footprint in that leaflet, as for Insane4MemPrO `-footprint map`, with the leaflets extending to their mean phosphate planes in the frame), the area its lipids should occupy (from the Insane4MemPrO table, with the same `-apl`, `-temp` and `-apl_ff` options), how stretched or compressed each leaflet is, and a suggested `-asym` to rebuild with so both are equally strained. This is area matching, an approximation to zero differential stress between the leaflets, so treat the suggestion as a guide, rebuild and check again. `-footprint section` uses the earlier definition instead, the protein's largest cross-section in 0.5 nm slices with bead radius `-radius` (default 0.26 nm). `-asym` applies to every membrane in the system.
 
 ## My protein didn't orient correctly
 
