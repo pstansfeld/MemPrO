@@ -166,8 +166,10 @@ devices = jax.devices()
 # Helical membrane proteins: positive-inside. Lys and Arg within SIDE_FLANK of the membrane are on the cytoplasmic
 # side, if one side has at least SIDE_PI_RATIO times as many and SIDE_PI_MIN more. A lipid anchor does not say which
 # side a helical protein faces, as it is periplasmic in either membrane (-l in the outer, -u in the inner).
-# Proteins no rule decides (a truncated channel without its charged cytoplasmic parts, a lipoprotein whose anchor is
-# not in the model), or whose anchors and C-terminal strands disagree, are left as MemPrO places them.
+# Where these rules are not met, the weaker evidence still decides, with a warning that it is low-confidence: any
+# difference in loop length, then in Lys/Arg near each face (beta-barrels), or in Lys/Arg (helical proteins). A
+# protein left as found would be as likely to be wrong, so only one with no evidence at all (no difference) or whose
+# anchors and C-terminal strands disagree is left as MemPrO places it, also with a warning.
 import numpy as np
 
 SIDE_LIPID_ANCHORS = {"CYST","CYSD","CYSP","CYSM","CYSK","CYSL","CYSF","CYSG","GLYM"}
@@ -179,6 +181,9 @@ SIDE_STRAND_RISE = 6.0
 # Consecutive backbone beads are 3.5-3.9 A apart: a longer step is a chain break or missing residues (martinize2
 # -merge all numbers merged chains straight through, so chain letters and numbers alone do not show where chains end)
 SIDE_BREAK = 7.0
+# A segment whose next segment starts within SIDE_GAP (A) on the same side of the membrane ends at missing residues
+# (a gap in a loop, usually a disordered extracellular one), not at a chain end
+SIDE_GAP = 40.0
 # Membrane backbone beads a segment needs before it counts as part of a barrel
 SIDE_MIN_TM = 10
 SIDE_LOOP_RATIO = 1.5
@@ -190,8 +195,9 @@ SIDE_PI_MIN = 3
 def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 	"""
 	Which way up a membrane protein should be, from its beads (xyz in A, membrane midplane at z = 0, half the
-	hydrophobic thickness in A). Returns (side, reasons, warning): side is 1 (periplasmic side already at -z), -1
-	(turn it over) or 0 (no rule applies, or the rules disagree); reasons lists the evidence.
+	hydrophobic thickness in A). Returns (side, reasons, warning): side is 1 (the -l side already at -z), -1 (turn it
+	over) or 0 (no evidence, or the rules disagree); reasons lists the evidence; warning is set when the decision is
+	low-confidence or none was made.
 	"""
 	xyz = np.asarray(xyz,dtype=float)
 	atomnames = [str(a).strip() for a in atomnames]
@@ -220,9 +226,12 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 		p = xyz[bb]
 		new = np.r_[True,(np.linalg.norm(np.diff(p,axis=0),axis=1) > SIDE_BREAK)|(np.diff(np.array(resnums)[bb]) < 0)|(np.array(chains)[bb][1:] != np.array(chains)[bb][:-1])]
 		seg = np.cumsum(new)
+		starts_at = {s_:p[np.where(seg == s_)[0][0]] for s_ in np.unique(seg)}
 		for s_ in np.unique(seg):
 			q = p[seg == s_]
 			z = q[:,2]
+			nxt = starts_at.get(s_+1)
+			gap_end = nxt is not None and np.linalg.norm(nxt-q[-1]) < SIDE_GAP and np.sign(nxt[2]) == np.sign(q[-1,2]) and abs(q[-1,2]) > half
 			tm = np.abs(z) < half
 			if tm.sum() < SIDE_MIN_TM:
 				continue
@@ -233,9 +242,10 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 				helices += 1
 				continue
 			barrels += 1
-			# Where the segment last leaves the membrane, if it does (one ending in the membrane is a gap)
+			# Where the segment last leaves the membrane, if it ends at a chain end and does leave (one ending in the
+			# membrane, or at missing residues, says nothing about the C-terminus)
 			last = np.where(tm)[0][-1]
-			if last+1 < len(z):
+			if last+1 < len(z) and not gap_end:
 				exits[0 if np.mean(z[last+1:]) < 0 else 1] += 1
 			# Loops: runs outside the membrane between two passes through it
 			out = np.r_[False,~tm,False]
@@ -243,16 +253,22 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 			for i,j in zip(starts,ends):
 				if i > 0 and j < len(z):
 					loops[1 if np.mean(z[i:j]) > 0 else -1].append(j-i)
+	#Positive-inside counts
+	kr = np.array([i for i in bb if resnames[i] in ("LYS","ARG")],dtype=int)
+	kz = xyz[kr,2] if len(kr) else np.zeros(0)
+	kr_up = int(((kz > half)&(kz < half+SIDE_FLANK)).sum())
+	kr_down = int(((kz < -half)&(kz > -half-SIDE_FLANK)).sum())
+	kr_note = "%d Lys/Arg within %.0f nm of the membrane at -z, %d at +z"%(kr_down,SIDE_FLANK/10,kr_up)
+	low = "low-confidence (%s)"
+	none = "no evidence for which side is which; orientation kept"
+
 	if helices and not barrels:
-		#Positive-inside
-		kr = np.array([i for i in bb if resnames[i] in ("LYS","ARG")],dtype=int)
-		z = xyz[kr,2] if len(kr) else np.zeros(0)
-		up = int(((z > half)&(z < half+SIDE_FLANK)).sum())
-		down = int(((z < -half)&(z > -half-SIDE_FLANK)).sum())
-		reasons.append("helical: %d Lys/Arg within %.0f nm of the membrane at -z, %d at +z"%(down,SIDE_FLANK/10,up))
-		if max(up,down) >= SIDE_PI_RATIO*min(up,down) and abs(up-down) >= SIDE_PI_MIN:
-			return (1 if down > up else -1),reasons,None
-		return 0,reasons,None
+		reasons.append("helical: "+kr_note)
+		if max(kr_up,kr_down) >= SIDE_PI_RATIO*min(kr_up,kr_down) and abs(kr_up-kr_down) >= SIDE_PI_MIN:
+			return sign(kr_down,kr_up),reasons,None
+		if kr_up != kr_down:
+			return sign(kr_down,kr_up),reasons,low%"few Lys/Arg, or nearly as many on each side"
+		return 0,reasons,none
 
 	if anchor_z:
 		down = sum(z < 0 for z in anchor_z)
@@ -273,7 +289,13 @@ def membrane_side(xyz,atomnames,resnames,resnums,chains,half):
 		reasons.append("beta-barrel loops %.0f residues at +z, %.0f at -z (median)"%(up,down))
 		if max(up,down) >= SIDE_LOOP_RATIO*max(min(up,down),1):
 			return (1 if up > down else -1),reasons,None
-	return 0,reasons,None
+		if up != down:
+			return (1 if up > down else -1),reasons,low%"loops and turns of similar length"
+	if barrels or anchor_z:
+		reasons.append(kr_note)
+		if kr_up != kr_down:
+			return sign(kr_down,kr_up),reasons,low%"from Lys/Arg alone"
+	return 0,reasons,none
 # END SIDEDNESS
 
 #This is a class that deals with the pdb files and all construction of position arrays
@@ -2803,17 +2825,15 @@ class MemBrain:
 				names,resns,nums,chs = zip(*side_meta)
 				side,reasons,side_warning = membrane_side(orient_poses,names,resns,nums,chs,float(npmem_im[i])/2)
 				evidence = "; ".join(reasons) if reasons else "no lipid anchors or beta-barrel"
-				if(side_warning):
-					side_note = "undecided, "+side_warning+" ("+evidence+"); orientation kept"
-				elif(side == 0):
-					side_note = "undecided ("+evidence+"); orientation kept"
+				if(side == 0):
+					side_note = "undecided, "+(side_warning or "no evidence")+" ("+evidence+"); orientation kept"
 				else:
 					rank_flip = flip*side
 					down_side = "cytoplasmic" if reasons[-1].startswith("helical") else "periplasmic"
-					side_note = ("turned over" if side < 0 else "kept")+", "+down_side+" side at -z ("+evidence+")"
+					side_note = ("turned over" if side < 0 else "kept")+", "+down_side+" side at -z ("+evidence+")"+("; "+side_warning if side_warning else "")
 				#Every rank's verdict is in its info file; rank 1 is printed
 				if(i == 0):
-					print(("WARNING: " if side_warning else "")+"Sidedness (rank 1): "+side_note+("" if side else ". Check which way up it is and use -flip if needed."))
+					print(("WARNING: " if side_warning else "")+"Sidedness (rank 1): "+side_note+(". Check which way up it is and use -flip if needed." if side_warning else ""))
 			self.rank_flips.append(rank_flip)
 			infos.write("Sidedness (-side): "+side_note+"\n")
 			ranks.write(str(i+1)+"\t "+str(form(min_pots[i]))+"\t"+str(form(min_hits[i]))+"\t"+str(form(self.re_rank_pots[i]))+"\t"+str(form(self.re_rank_disses[i]))+"\t"+str(form(self.re_rank_vals[i]))+"\n")#+"\t"+str(pm)+"\t"+str(mm)+"\n")
@@ -3223,6 +3243,29 @@ def create_sph_grid(bsize):
 	sgrid,_ = jax.lax.scan(ball_fun_3,sgrid,np.arange(bsize))
 	return sgrid
 	
+#Starting angles (as in create_sph_grid) that put the membrane normal along the protein's long axis (-dm, unless -la
+#off): the first principal axis of the surface beads. A complex spanning the periplasm between two membranes sits with
+#it close to the normal, which a spiral grid of -ng starts may not come near. The angles are found
+#by searching a fine grid through the same functions the minimiser uses, so they follow its conventions exactly.
+def long_axis_angs(poses,fine=96):
+	p = np.asarray(poses,dtype=float)
+	p = p-p.mean(axis=0)
+	evals,evecs = np.linalg.eigh(p.T@p)
+	axis = jnp.asarray(evecs[:,-1])
+	elongation = float(np.sqrt(evals[-1]/max(evals[-2],1e-9)))
+	phis,thetas = np.meshgrid(np.linspace(0,np.pi,fine),np.linspace(0,2*np.pi,2*fine,endpoint=False),indexing="ij")
+	grid = jnp.asarray(np.column_stack([phis.ravel(),thetas.ravel()]))
+	def normal(a):
+		zdir = position_point_jit(0,a[1],a[0],jnp.array([[0.0,0.0,1.0]]))[0]
+		xydir = position_point_jit(0,a[1],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2]
+		basis = position_pointv2(0,zdir,xydir,jnp.eye(3))
+		#Membrane normal (z after positioning) in the protein's frame
+		n = basis[:,2]
+		return n/jnp.linalg.norm(n)
+	fit = jnp.abs(jax.vmap(normal)(grid)@axis)
+	best = int(jnp.argmax(fit))
+	return np.asarray(grid[best])[None,:],elongation,float(np.degrees(np.arccos(min(1.0,float(fit[best])))))
+
 #Fibonacci spiral angles, wrapped into [0, 2pi] exactly as the original while loops did (static, so done in numpy)
 def _spiral_theta(bsize):
 	gr = (1+np.sqrt(5))/2
@@ -3675,6 +3718,8 @@ def main():
 	parser.set_defaults(curvature=False)
 	parser.add_argument("-flip","--flip",action="store_true",help="Turns the protein over (180 degrees about x) after orientation, after -side.")
 	parser.set_defaults(flip=False)
+	parser.add_argument("-la","--long_axis",choices=["on","off"],help="With -dm, add a starting configuration with the membrane normals along the protein's long axis to the -ng grid (Default: on; not used without -dm)")
+	parser.set_defaults(long_axis="on")
 	parser.add_argument("-side","--sidedness",choices=["auto","off"],help="Which way up the protein goes: auto puts the extracellular side up (Insane4MemPrO -u) and the cytoplasmic side (the periplasm, for outer-membrane proteins) at -z (-l), from lipid anchors and beta-barrels, or positive-inside for helical proteins; off keeps MemPrO's orientation (Default: auto)")
 	parser.set_defaults(sidedness="auto")
 	parser.add_argument("-itp","--itp_file",help="Path to force field (martini_v3.itp)")
@@ -3925,6 +3970,12 @@ def main():
 
 	#Setting up a spherical grid for local minima calculations
 	angs = create_sph_grid(grid_size)
+	#-dm: one more start with the membrane normal along the protein's long axis (unless -la off)
+	if(args.dual_membrane and args.long_axis == "on"):
+		la_angs,elongation,miss = long_axis_angs(Mem_test.surface_poses)
+		angs = jnp.concatenate([jnp.asarray(la_angs,dtype=angs.dtype),angs])
+		grid_size += 1
+		print("Long-axis start added (long axis %.1f times the next; normal within %.1f degrees of it)"%(elongation,miss))
 
 	#Getting a starting insertion depth
 	print("Getting initial insertion depth...")

@@ -77,8 +77,25 @@ class TestSidedness(unittest.TestCase):
         # A chain ending in the membrane (missing residues) leaves the decision to the loops: long ones are outside
         self.assertEqual(side(barrel(c_tail=0))[0], 1)
         self.assertEqual(side(turned(barrel(c_tail=0)))[0], -1)
-        # Loops and turns of the same length decide nothing
+        # Loops only a little longer outside still decide, with a warning; loops and turns of the same length, with no
+        # Lys/Arg either, decide nothing
+        s, reasons, warning = side(barrel(c_tail=0, out_loop=4, in_turn=3))
+        self.assertEqual(s, 1)
+        self.assertIn("low-confidence", warning)
         self.assertEqual(side(barrel(c_tail=0, out_loop=3, in_turn=3))[0], 0)
+
+    def test_missing_loop_residues_are_not_a_c_terminus(self):
+        # A model missing part of an extracellular loop (as FepA 1FEP): the piece before the gap leaves the membrane
+        # at +z, but that is not where the chain ends, so the loops decide
+        xyz, names, resn, num, ch = barrel(c_tail=0, out_loop=12)
+        loop = np.where(xyz[:, 2] > 15)[0][:12]
+        keep = np.ones(len(xyz), dtype=bool)
+        keep[loop[4:8]] = False
+        gapped = (xyz[keep], [n for n, k in zip(names, keep) if k], [r for r, k in zip(resn, keep) if k],
+                  list(range(1, keep.sum() + 1)), [c for c, k in zip(ch, keep) if k])
+        s, reasons, warning = side(gapped)
+        self.assertEqual(s, 1)
+        self.assertFalse(any("chain end" in r for r in reasons))
 
     def test_chains_merged_without_breaks_in_numbering(self):
         # martinize2 -merge all numbers merged chains straight through; a periplasmic domain far from the barrel's
@@ -112,9 +129,15 @@ class TestSidedness(unittest.TestCase):
         self.assertEqual(s, 1)
         self.assertIn("helical: 8 Lys/Arg within 1 nm of the membrane at -z, 1 at +z", reasons)
         self.assertEqual(side(turned(bundle()))[0], -1)
-        # Too few, or too even, to decide (as for KcsA without its cytoplasmic domains)
-        self.assertEqual(side(bundle(k_down=3, k_up=1))[0], 0)
-        self.assertEqual(side(bundle(k_down=7, k_up=4))[0], 0)
+        # Few, or nearly as many on each side (as for KcsA without its cytoplasmic domains): still decided, with a
+        # warning; only an even split is left as found
+        for k_down, k_up in ((3, 1), (7, 4)):
+            s, reasons, warning = side(bundle(k_down=k_down, k_up=k_up))
+            self.assertEqual(s, 1)
+            self.assertIn("low-confidence", warning)
+        s, reasons, warning = side(bundle(k_down=2, k_up=2))
+        self.assertEqual(s, 0)
+        self.assertIn("no evidence", warning)
         # Lipid anchors do not decide for a helical protein: in the inner membrane they would be at +z (-u)
         xyz, names, resn, num, ch = bundle(k_down=0, k_up=0)
         anchor = [(np.array([40.0, 3.0 * k, -8.0]), b) for k in range(4) for b in ("BB", "SC1", "C1A", "C2A")]
@@ -122,6 +145,7 @@ class TestSidedness(unittest.TestCase):
                     resn + ["CYST"] * len(anchor), num + [1000 + k for k in range(4) for _ in range(4)],
                     ch + ["B"] * len(anchor))
         self.assertEqual(side(anchored)[0], 0)
+        self.assertNotIn("anchor", " ".join(side(anchored)[1]))
 
     def test_lipid_anchors(self):
         # Triacyl Cys tails in the lower leaflet (as PqiC): periplasmic side down; in the upper leaflet: turn over
