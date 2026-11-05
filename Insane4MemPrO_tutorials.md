@@ -120,7 +120,7 @@ MemPrO handles the double membrane setup; we only need to define the composition
 
 ## Tutorial 4 - Building with Peptidoglycan Layers
 
-In Tutorial 3 we built a more accurate double membrane system. We can further improve the biological accuracy by adding a peptidoglycan (PG) cell wall. Create a new folder called "Tutorial4" and copy over `5nik-cg.pdb` from Tutorial 3 (or follow the download instructions in [MemPrO Tutorial 2](MemPrO_tutorials.md#tutorial-2---double-membrane-systems)). You will also need the files `NAM.itp`, `NAG.itp`, `SNPEP.itp`, `UNPEP.itp`, and `UUNPEP.itp` — the components used to build the PG layer, found in the "PG_Components" folder.
+In Tutorial 3 we built a more accurate double membrane system. We can further improve the biological accuracy by adding a peptidoglycan (PG) cell wall. Create a new folder called "Tutorial4" and copy over `5nik-cg.pdb` from Tutorial 3 (or follow the download instructions in [MemPrO Tutorial 2](MemPrO_tutorials.md#tutorial-2---double-membrane-systems)). The PG layer is built from `NAM.itp`, `NAG.itp`, `SNPEP.itp`, `UNPEP.itp` and `UUNPEP.itp`, which ship with Insane4MemPrO (`mempro/PG_Components`) and are found automatically; copy them into the working folder only if you want to use your own versions, as a file there takes precedence.
 
 Start by orienting the protein:
 

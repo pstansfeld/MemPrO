@@ -152,6 +152,23 @@ class TestDeformationTwoMembranes(unittest.TestCase):
         self.assertAlmostEqual(separation(deformed) - separation(flat_layers), 0.3, delta=0.08)
 
 
+class TestPeptidoglycan(unittest.TestCase):
+    def test_pg_layer_from_shipped_components(self):
+        # A PG layer between two membranes, built in an empty folder: Insane4MemPrO finds the NAM, NAG and peptide
+        # components it ships with (mempro/PG_Components) and writes PGL.itp
+        tmp = tempfile.mkdtemp(prefix="insane_pg_")
+        TMP_DIRS.append(tmp)
+        out = subprocess.run([sys.executable, INSANE, "-x", "10", "-y", "10", "-z", "25", "-ps", "7", "-l", "POPE",
+                              "-sol", "W", "-pgl", "1", "-pgl_z", "0", "-o", "sys.gro", "-p", "topol.top", "-o_f", "./"],
+                             cwd=tmp, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout[-2000:] + out.stderr[-2000:])
+        self.assertTrue(os.path.exists(os.path.join(tmp, "PGL.itp")))
+        with open(os.path.join(tmp, "sys.gro")) as f:
+            resnames = {line[5:10].strip() for line in f.read().split("\n")[2:-2]}
+        self.assertTrue({"NAM", "NAG"} <= resnames)
+        self.assertFalse(any(name.endswith(".itp") and name != "PGL.itp" for name in os.listdir(tmp)))
+
+
 class TestFlatFilling(unittest.TestCase):
     def test_flat_leaflet_gets_box_area_over_apl(self):
         log, counts, _ = build(["-x", "12", "-y", "10", "-z", "10", "-l", "POPE"])

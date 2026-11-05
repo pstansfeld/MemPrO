@@ -2317,6 +2317,17 @@ def lines_to_coords(all_lines):
 	return all_lines,old_shape
 			
 #Writes the itp file for PG		  
+#The peptidoglycan building blocks (NAM, NAG and the peptide stems): a file of that name in the working directory if
+#there is one (to use your own), otherwise the copy shipped with Insane4MemPrO (mempro/PG_Components)
+def pg_component(name):
+	if os.path.exists(name):
+		return name
+	shipped = os.path.join(os.path.dirname(os.path.abspath(__file__)),"PG_Components",name)
+	if os.path.exists(shipped):
+		return shipped
+	print("ERROR: Cannot find the PG layer component "+name+" in the working directory or "+os.path.dirname(shipped))
+	exit(1)
+
 def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str,prev_nos):  
 	nam_data = load_itp(nam_itp)
 	nag_data = load_itp(nag_itp)
@@ -4275,7 +4286,7 @@ if(Num_PGL > 0):
 	print("Dimer:",dimer)
 	print("Higher oligomer:",olig_plus)
 	print("Writing ITP for PG layer...")
-	prev_str,prev_nos = write_PGL_itp(Gposes,"NAM.itp","NAG.itp","SNPEP.itp","UNPEP.itp","UUNPEP.itp",prev_str,prev_nos)
+	prev_str,prev_nos = write_PGL_itp(Gposes,*[pg_component(n+".itp") for n in ("NAM","NAG","SNPEP","UNPEP","UUNPEP")],prev_str,prev_nos)
 	print("Relaxing the PG layer (This will change the cell size slightly)...")
 	box_size,Gposes = relax_pg(Gposes,np.array([pbcx*50,pbcy*50]),5,pc_zslice)
 	box[0] = [box_size[0]/50,0,0]
