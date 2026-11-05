@@ -3439,7 +3439,8 @@ are not specified. Curvature can be specified using -curv.
 	("-radius",		Option(float,		1,		  -1, "Radius of membrane outer disk. This is by default the whole cell")),
 	("-grid",		Option(str,		1,		  "square", "Lipid grid for flat membranes filling the box: square (continuous across the periodic boundaries) or circular (concentric rings, which pack unevenly where they meet). Curved membranes and -radius disks always use rings")),
 	("-no_lipids",		Option(int,		1,		  -1, "Number of lipids that make up a micelle, this will override area per lipid. Only for use with -micelle")),
-	("-def",	  Option(str,		 1,		None, "Input folder containing deformation data from MemPrOD, This cannot be used with -ps or -curv.")),
+	("-def",	  Option(str,		 1,		None, "Input folder containing deformation data from MemPrOD (Membrane_Data). With -ps, the membrane at -ps (-l/-u), from MemPrOD -dm (its Inner/Membrane_Data). Cannot be used with -curv.")),
+	("-def_o",	  Option(str,		 1,		None, "With -ps, deformation data for the membrane at +ps (-lo/-uo), from MemPrOD -dm (its Outer/Membrane_Data)")),
 	"""
 Peptidoglycan layer related options.
 """,
@@ -3533,29 +3534,61 @@ if(not os.path.exists(out_folder)):
 SpGrid =  jnp.array(SphereGridAng(20,np.pi/2))
 #print(SpGrid)
 
+#MemPrOD deformations (-def, and -def_o for the second membrane): each membrane's midplane shift and thickness on a
+#grid in the protein's x,y frame (A, about the box centre), the protein's turn about z, and how far the membrane sits
+#from MemPrOD's z = 0 (Z_change). With one membrane the protein is turned and shifted by -Z_change, as MemPrOD found it.
+#With two (-ps) the protein cannot follow both, so the data must come from MemPrOD -dm, which predicts each membrane
+#about its own centre (Membrane_centre.npz) without turning the protein; each membrane is then moved by its Z_change.
 memdata = options["-def"].value
-#MemPrOD deformations are for one flat membrane: with two membranes they would be applied to both, and MemPrOD's z
-#shift would move the protein off the positions MemPrO found
-if memdata and (float(options["-ps"].value) > 1e-5 or abs(float(options["-curv"].value.split(",")[0])) > 1e-9):
-	print("ERROR: -def (MemPrOD deformations) cannot be used with -ps (two membranes) or -curv (a curved membrane)")
+memdata_o = options["-def_o"].value
+dual_def = float(options["-ps"].value) > 1e-5
+if (memdata or memdata_o) and abs(float(options["-curv"].value.split(",")[0])) > 1e-9:
+	print("ERROR: -def (MemPrOD deformations) cannot be used with -curv (a curved membrane)")
 	exit(1)
-if memdata:
-	mdata = np.load(memdata+"Membrane_pos.npz")
-	membrane_pos = mdata["arr_0"]
-	mdata2 = np.load(memdata+"Rotation_matrix.npz")
-	rot_mat_def = mdata2["arr_0"]
-	mdata5 = np.load(memdata+"Z_change.npz")
-	z_change = mdata5["arr_0"]
-	mdata3 = np.load(memdata+"Xlin.npz")
-	xlin_def = mdata3["arr_0"]
-	mdata4 = np.load(memdata+"Ylin.npz")
-	ylin_def = mdata4["arr_0"]
-else:
-	membrane_pos = 0
-	rot_mat_def = np.eye(3)
-	xlin_def = 0
-	ylin_def = 0
-	z_change = 0
+if memdata_o and not dual_def:
+	print("ERROR: -def_o is for the second membrane of a double membrane (-ps)")
+	exit(1)
+def load_deformation(folder,gi):
+	folder = folder if folder.endswith("/") else folder+"/"
+	d = {k:np.load(folder+f+".npz")["arr_0"] for k,f in (("pos","Membrane_pos"),("rot","Rotation_matrix"),("zch","Z_change"),("xlin","Xlin"),("ylin","Ylin"))}
+	d["shift"] = 0.0
+	if dual_def:
+		if not os.path.exists(folder+"Membrane_centre.npz"):
+			print("ERROR: "+folder+" is MemPrOD output for a single membrane. With -ps use MemPrOD -dm, which predicts each membrane separately (-def Inner/Membrane_Data/, -def_o Outer/Membrane_Data/)")
+			exit(1)
+		centre = float(np.load(folder+"Membrane_centre.npz")["arr_0"])/10
+		expected = float(options["-ps"].value)*(2*gi-1)
+		if np.sign(centre) != np.sign(expected):
+			print("ERROR: "+folder+" is for the membrane at z = %.1f nm, but is given for the one at %.1f nm (-def is the membrane at -ps, -def_o the one at +ps)"%(centre,expected))
+			exit(1)
+		if abs(centre-expected) > 0.5:
+			print("WARNING: "+folder+" was predicted for a membrane at z = %.1f nm; it is applied to the one at %.1f nm"%(centre,expected))
+		d["shift"] = float(d["zch"])/10
+	return d
+deformations = [load_deformation(memdata,0) if memdata else None,load_deformation(memdata_o,1) if memdata_o else None]
+#Only a single membrane's deformation turns and shifts the protein
+rot_mat_def = deformations[0]["rot"] if deformations[0] is not None and not dual_def else np.eye(3)
+z_change = float(deformations[0]["zch"]) if deformations[0] is not None and not dual_def else 0.0
+
+def deformation_at(gi,x,y,box_x,box_y):
+	"""MemPrOD's midplane shift (nm) and thickness scale for membrane gi at box positions x,y (nm), where its grid
+	covers them; 0 and 1 elsewhere (or with no -def for that membrane)."""
+	x,y = np.asarray(x,dtype=float),np.asarray(y,dtype=float)
+	d = deformations[gi] if gi < len(deformations) else None
+	if d is None:
+		return np.zeros(x.shape),np.ones(x.shape)
+	xl,yl = d["xlin"],d["ylin"]
+	xind = ((((x-box_x/2)*10)-xl[0])/(xl[-1]-xl[0])*xl.shape[0]).astype(int)
+	yind = ((((y-box_y/2)*10)-yl[0])/(yl[-1]-yl[0])*yl.shape[0]).astype(int)
+	inside = (xind >= 0)&(yind >= 0)&(xind < xl.shape[0])&(yind < yl.shape[0])
+	xind,yind = np.clip(xind,0,xl.shape[0]-1),np.clip(yind,0,yl.shape[0]-1)
+	pos = d["pos"]
+	return np.where(inside,pos[xind,yind,0]/10.0,0.0),np.where(inside,pos[xind,yind,1]/pos[0,0,1],1.0)
+
+def membrane_shift(gi):
+	"""How far MemPrOD moved membrane gi from MemPrO's position (nm; double membranes only)."""
+	d = deformations[gi] if gi < len(deformations) else None
+	return 0.0 if d is None else d["shift"]
 
 
 
@@ -4592,18 +4625,8 @@ if lipL:
 		for si in test_pts:
 			if avoid is not None and avoid((gp[0]+si[0],gp[1]+si[1])):
 				continue
-			if memdata:
-				xtest = (gp[0]+si[0]-pbcx/2)*10
-				ytest = (gp[1]+si[1]-pbcy/2)*10
-				xind = int(((xtest-xlin_def[0])/(xlin_def[-1]-xlin_def[0]))*xlin_def.shape[0])
-				yind = int(((ytest-ylin_def[0])/(ylin_def[-1]-ylin_def[0]))*ylin_def.shape[0])
-				if xind < 0 or yind < 0 or xind >= xlin_def.shape[0] or yind >= ylin_def.shape[0]:
-					zdef = 0
-				else:
-					defor = membrane_pos[xind,yind]/10.0
-					zdef = defor[0]
-					mtdef = (10*defor[1]/membrane_pos[0,0,1])
-			poser = np.array([gp[0],gp[1],mtdef*gp[2]+zdist*(gi*2-1)+zdef])
+			zdef,mtdef = deformation_at(gi,gp[0]+si[0],gp[1]+si[1],pbcx,pbcy)
+			poser = np.array([gp[0],gp[1],float(mtdef)*gp[2]+zdist*(gi*2-1)+float(zdef)+membrane_shift(gi)])
 			coll = False
 			path = [poser+si]
 			near_prot = near_protein(prot_tree,prot_coords,poser,si,tails,exprot) if tm else prot_coords
@@ -4644,17 +4667,13 @@ if lipL:
 	def membrane_geometry(gi):
 		box_xy = np.array([pbcx,pbcy])
 		nx,ny,px,py = fp_grid(box_xy)
-		mid = zdist*(gi*2-1)
+		mid = zdist*(gi*2-1)+membrane_shift(gi)
 		scale = 1.0
-		if memdata:
+		if deformations[gi] is not None:
 			#Local midplane shift and thickness from MemPrOD, read as in place_lipid
 			gx,gy = np.meshgrid((np.arange(nx)+0.5)*px,(np.arange(ny)+0.5)*py,indexing="ij")
-			xind = ((((gx-pbcx/2)*10)-xlin_def[0])/(xlin_def[-1]-xlin_def[0])*xlin_def.shape[0]).astype(int)
-			yind = ((((gy-pbcy/2)*10)-ylin_def[0])/(ylin_def[-1]-ylin_def[0])*ylin_def.shape[0]).astype(int)
-			inside = (xind >= 0)&(yind >= 0)&(xind < xlin_def.shape[0])&(yind < ylin_def.shape[0])
-			xind,yind = np.clip(xind,0,xlin_def.shape[0]-1),np.clip(yind,0,ylin_def.shape[0]-1)
-			mid = mid+np.where(inside,membrane_pos[xind,yind,0]/10.0,0.0)
-			scale = np.where(inside,membrane_pos[xind,yind,1]/membrane_pos[0,0,1],1.0)
+			zdef,scale = deformation_at(gi,gx,gy,pbcx,pbcy)
+			mid = mid+zdef
 		half_up,half_lo,source = leaflet_half(gi)
 		return box_xy,mid,half_up*scale,half_lo*scale,"%.2f/-%.2f nm (from %s)"%(half_up,half_lo,source)
 

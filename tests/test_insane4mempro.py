@@ -87,21 +87,69 @@ class TestDeformation(unittest.TestCase):
                 self.assertAlmostEqual(rise, 0.45, delta=0.1, msg=grid)
 
 
-class TestDeformationLimits(unittest.TestCase):
-    def test_def_refused_with_two_membranes(self):
-        # MemPrOD deformations are for one flat membrane; with -ps they would be applied to both membranes
-        data = tempfile.mkdtemp(prefix="insane_def_")
-        TMP_DIRS.append(data)
-        lin = np.linspace(-50, 50, 10)
-        for name, arr in (("Membrane_pos", np.stack([np.zeros((10, 10)), np.full((10, 10), 30.0)], axis=-1)),
-                          ("Rotation_matrix", np.eye(3)), ("Z_change", np.array(0.0)), ("Xlin", lin), ("Ylin", lin)):
-            np.savez(os.path.join(data, name + ".npz"), arr)
+def write_deformation(folder, bump, zch=0.0, centre=None):
+    """A synthetic MemPrOD Membrane_Data folder: the midplane raised by bump (A) in a Gaussian at the centre, constant
+    thickness, the membrane moved by zch (A); centre (A) marks MemPrOD -dm output for one membrane of two."""
+    os.makedirs(folder, exist_ok=True)
+    lin = np.linspace(-50, 50, 34)
+    gx, gy = np.meshgrid(lin, lin, indexing="ij")
+    pos = np.stack([bump * np.exp(-(gx ** 2 + gy ** 2) / (2 * 15.0 ** 2)), np.full(gx.shape, 30.0)], axis=-1)
+    for name, arr in (("Membrane_pos", pos), ("Rotation_matrix", np.eye(3)), ("Z_change", np.array(zch)),
+                      ("Xlin", lin), ("Ylin", lin)):
+        np.savez(os.path.join(folder, name + ".npz"), arr)
+    if centre is not None:
+        np.savez(os.path.join(folder, "Membrane_centre.npz"), np.array(centre))
+    return folder + "/"
+
+
+class TestDeformationTwoMembranes(unittest.TestCase):
+    def run_insane(self, extra):
         tmp = tempfile.mkdtemp(prefix="insane_test_")
         TMP_DIRS.append(tmp)
         out = subprocess.run([sys.executable, INSANE, "-x", "10", "-y", "10", "-z", "30", "-ps", "8", "-l", "POPE", "-sol", "W",
-                              "-def", data + "/", "-o", "sys.gro", "-p", "topol.top"], cwd=tmp, capture_output=True, text=True)
+                              "-o", "sys.gro", "-p", "topol.top"] + extra, cwd=tmp, capture_output=True, text=True)
+        return out, os.path.join(tmp, "sys.gro")
+
+    def test_single_membrane_data_refused(self):
+        # MemPrOD's single-membrane output would be applied to both membranes and its z shift would move the protein
+        data = write_deformation(os.path.join(tempfile.mkdtemp(prefix="insane_def_"), "Membrane_Data"), 5.0)
+        out, _ = self.run_insane(["-def", data])
         self.assertNotEqual(out.returncode, 0)
-        self.assertIn("-def (MemPrOD deformations) cannot be used with -ps", out.stdout + out.stderr)
+        self.assertIn("is MemPrOD output for a single membrane", out.stdout + out.stderr)
+
+    def test_each_membrane_follows_its_own_deformation(self):
+        # MemPrOD -dm output: the membrane at -8 nm raised by 5 A at the centre, the one at +8 nm lowered by 5 A and
+        # moved up by 3 A as a whole (Z_change)
+        root = tempfile.mkdtemp(prefix="insane_def_")
+        TMP_DIRS.append(root)
+        inner = write_deformation(os.path.join(root, "Inner", "Membrane_Data"), 5.0, 0.0, -80.0)
+        outer = write_deformation(os.path.join(root, "Outer", "Membrane_Data"), -5.0, 3.0, 80.0)
+        out, gro = self.run_insane(["-def", inner, "-def_o", outer])
+        self.assertEqual(out.returncode, 0, out.stdout[-2000:] + out.stderr[-2000:])
+        flat, flat_gro = self.run_insane([])
+        def leaflets(path):
+            """Phosphate heights (nm) of each of the four leaflets, bottom up, within 1 nm of the box centre (x,y) and
+            beyond 4 nm of it."""
+            with open(path) as f:
+                lines = f.read().split("\n")
+            n = int(lines[1])
+            rows = [r for r in lines[2:2 + n] if r[5:10].strip() == "POPE" and r[10:15].strip() == "PO4"]
+            box = np.array([float(v) for v in lines[2 + n].split()[:3]])
+            xyz = np.array([[float(r[20:28]), float(r[28:36]), float(r[36:44])] for r in rows])
+            r = np.hypot(xyz[:, 0] - box[0] / 2, xyz[:, 1] - box[1] / 2)
+            z = np.sort(xyz[:, 2])
+            gaps = np.sort(z[np.argsort(np.diff(z))[-3:]] + np.sort(np.diff(z))[-3:] / 2)
+            layer = np.searchsorted(gaps, xyz[:, 2])
+            return [(xyz[(layer == k) & (r < 1.0), 2].mean(), xyz[(layer == k) & (r > 4.0), 2].mean()) for k in range(4)]
+        deformed, flat_layers = leaflets(gro), leaflets(flat_gro)
+        # Each leaflet of the membrane at -ps rises over its bump, each of the one at +ps sinks
+        for k, bump in ((0, 0.5), (1, 0.5), (2, -0.5), (3, -0.5)):
+            near, far = deformed[k]
+            self.assertAlmostEqual(near - far, 0.9 * bump, delta=0.12, msg="leaflet %d" % k)
+        # The membrane at +ps is moved 0.3 nm further from the one at -ps (its Z_change); the system is recentred
+        # in z afterwards, so the separation is what is compared
+        separation = lambda layers: (layers[2][1] + layers[3][1]) / 2 - (layers[0][1] + layers[1][1]) / 2
+        self.assertAlmostEqual(separation(deformed) - separation(flat_layers), 0.3, delta=0.08)
 
 
 class TestFlatFilling(unittest.TestCase):
