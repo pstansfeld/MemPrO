@@ -302,7 +302,7 @@ Lipid names follow the [Martini 3 lipidome](https://github.com/Martini-Force-Fie
 
 #### Peptidoglycan layer options
 
-**-pgl** — (Default: 0) Number of PG layers to place at `-pgl_z`.
+**-pgl** — (Default: 0) Number of PG layers to place at `-pgl_z`. The layers are 2.5 nm apart, and each is one molecule (`PGL` in `PGL.itp`) bonded across the periodic box, so set `periodic-molecules = yes` in the mdp files for any simulation of the built system.
 
 **-pgl_z** — (Default: 0) Z position of the PG layer relative to the centre of the periplasmic space.
 
