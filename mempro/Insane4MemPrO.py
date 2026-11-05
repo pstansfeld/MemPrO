@@ -2515,14 +2515,16 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 				b2ind = int(res[7])
 				if(l2ind != -1):
 					c_atm2 = cl_atm_start[ly2ind][l2ind][b2ind]
+					#3-3 links join the tripeptide donor's bead 7 (mDAP), 3-4 links its bead 8 (D-Ala4). Kept per link: setting
+					#iplink[0] for a 3-3 link used to make every later 3-4 link a 3-3 one
 					if(all_lines[lyind][lind][bind][13] == 1 or all_lines[ly2ind][l2ind][b2ind][13] == 1):
-						iplink[0] = 7
+						donor = 7
 					else:
-						pass
+						donor = iplink[0]
 						#angles_str += "\t"+str(ang_iplink[0][0]+c_atm1)+"\t"+str(ang_iplink[0][1]+c_atm1)+"\t"+str(ang_iplink[0][2]+c_atm2)+"\t"+str(ang_iplink[0][3])+"\t"+str(ang_iplink[0][4])+"\t"+str(ang_iplink[0][5])+"\n"
 						angles_str += "\t"+str(ang_iplink[1][0]+c_atm1)+"\t"+str(ang_iplink[1][1]+c_atm2)+"\t"+str(ang_iplink[1][2]+c_atm2)+"\t"+str(ang_iplink[1][3])+"\t"+str(ang_iplink[1][4])+"\t"+str(ang_iplink[1][5])+"\n"
 						
-					bonds_str += "\t"+str(iplink[0]+c_atm1)+"\t"+str(iplink[1]+c_atm2)+"\t"+str(iplink[2])+"\t"+str(iplink[3])+"\t"+str(iplink[4])+"\n"
+					bonds_str += "\t"+str(donor+c_atm1)+"\t"+str(iplink[1]+c_atm2)+"\t"+str(iplink[2])+"\t"+str(iplink[3])+"\t"+str(iplink[4])+"\n"
 	
 	return [atoms_str,bonds_str,constraints_str,angles_str,dihedrals_str],[resno,atm_no]		
 		

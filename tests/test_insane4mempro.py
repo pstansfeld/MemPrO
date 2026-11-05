@@ -168,6 +168,33 @@ class TestPeptidoglycan(unittest.TestCase):
         self.assertTrue({"NAM", "NAG"} <= resnames)
         self.assertFalse(any(name.endswith(".itp") and name != "PGL.itp" for name in os.listdir(tmp)))
 
+    def test_cross_link_beads(self):
+        # Cross-links join a donor stem to the acceptor's mDAP (bead 7): 3-4 links from the tetrapeptide's D-Ala4
+        # (UPEP bead 8), 3-3 links from the tripeptide's mDAP (UUPEP bead 7). Every 3-4 link written after the first
+        # 3-3 one used to start from bead 7 as well
+        tmp = tempfile.mkdtemp(prefix="insane_pgx_")
+        TMP_DIRS.append(tmp)
+        out = subprocess.run([sys.executable, INSANE, "-x", "10", "-y", "10", "-z", "25", "-ps", "7", "-l", "POPE",
+                              "-pgl", "2", "-pgl_z", "0", "-per33", "0.3", "-o", "sys.gro", "-p", "topol.top",
+                              "-o_f", "./"], cwd=tmp, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout[-2000:] + out.stderr[-2000:])
+        atoms, links, sec = [], [], None
+        with open(os.path.join(tmp, "PGL.itp")) as f:
+            for line in f:
+                t = line.strip()
+                if t.startswith("["):
+                    sec = t
+                elif t and not t.startswith(";"):
+                    p = t.split()
+                    if sec == "[ atoms ]":
+                        atoms.append((int(p[2]), p[3], p[4]))
+                    elif sec in ("[ bonds ]", "[ constraints ]"):
+                        a, b = atoms[int(p[0]) - 1], atoms[int(p[1]) - 1]
+                        if a[0] != b[0] and a[1].endswith("PEP") and b[1].endswith("PEP"):
+                            links.append((a[1] + ":" + a[2], b[2]))
+        self.assertGreater(len(links), 5)
+        self.assertTrue(all(d in ("UPEP:B8", "UUPEP:B7") and acc == "B7" for d, acc in links), links)
+
 
 class TestFlatFilling(unittest.TestCase):
     def test_flat_leaflet_gets_box_area_over_apl(self):
