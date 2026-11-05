@@ -2328,6 +2328,9 @@ def pg_component(name):
 	print("ERROR: Cannot find the PG layer component "+name+" in the working directory or "+os.path.dirname(shipped))
 	exit(1)
 
+#Heights of the cross-link acceptor stems, which carry an extra -1 (see write_PGL_itp)
+PG_acceptor_z = []
+
 def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str,prev_nos):  
 	nam_data = load_itp(nam_itp)
 	nag_data = load_itp(nag_itp)
@@ -2461,6 +2464,7 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 	ang_iplink = [[5,8,7,10,114,75],[8,7,6,10,95,75]]
 	
 	cl_atm_start = []
+	acceptors = {}
 	
 	for lyind,layer in enumerate(all_lines):
 		cl_atm_start_p1 = []
@@ -2515,16 +2519,30 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 				b2ind = int(res[7])
 				if(l2ind != -1):
 					c_atm2 = cl_atm_start[ly2ind][l2ind][b2ind]
-					#3-3 links join the tripeptide donor's bead 7 (mDAP), 3-4 links its bead 8 (D-Ala4). Kept per link: setting
-					#iplink[0] for a 3-3 link used to make every later 3-4 link a 3-3 one
+					#3-3 links join the tripeptide donor's mDAP L-centre C=O (bead 5), 3-4 links its D-Ala4 C=O (bead 8), each to the
+					#acceptor's mDAP D-centre amine (bead 7). Mapped from all-atom CHARMM36 runs, the 3-3 donor bead 5 sits 0.36 nm
+					#from the acceptor's bead 7, its bead 7 0.74-0.82 nm
 					if(all_lines[lyind][lind][bind][13] == 1 or all_lines[ly2ind][l2ind][b2ind][13] == 1):
-						donor = 7
+						donor = 5
 					else:
 						donor = iplink[0]
 						#angles_str += "\t"+str(ang_iplink[0][0]+c_atm1)+"\t"+str(ang_iplink[0][1]+c_atm1)+"\t"+str(ang_iplink[0][2]+c_atm2)+"\t"+str(ang_iplink[0][3])+"\t"+str(ang_iplink[0][4])+"\t"+str(ang_iplink[0][5])+"\n"
 						angles_str += "\t"+str(ang_iplink[1][0]+c_atm1)+"\t"+str(ang_iplink[1][1]+c_atm2)+"\t"+str(ang_iplink[1][2]+c_atm2)+"\t"+str(ang_iplink[1][3])+"\t"+str(ang_iplink[1][4])+"\t"+str(ang_iplink[1][5])+"\n"
 						
 					bonds_str += "\t"+str(donor+c_atm1)+"\t"+str(iplink[1]+c_atm2)+"\t"+str(iplink[2])+"\t"+str(iplink[3])+"\t"+str(iplink[4])+"\n"
+					acceptors[iplink[1]+c_atm2] = all_lines[ly2ind][l2ind][b2ind][2]
+	
+	#An acceptor's mDAP loses its free amine (NH3+) to the amide but keeps its carboxylate, so its bead 7 becomes Q5n with
+	#charge -1, like the D-iGlu carboxylate next to its amide (bead 3). Each acceptor takes one link
+	lines = atoms_str.split("\n")
+	for i,line in enumerate(lines):
+		f = line.split("\t")
+		if(len(f) > 7 and f[1].strip().isdigit() and int(f[1]) in acceptors):
+			f[2] = "Q5n"
+			f[7] = "-1.000"
+			lines[i] = "\t".join(f)
+	atoms_str = "\n".join(lines)
+	PG_acceptor_z.extend(acceptors.values())
 	
 	return [atoms_str,bonds_str,constraints_str,angles_str,dihedrals_str],[resno,atm_no]		
 		
@@ -2804,6 +2822,8 @@ def get_charge(lz,uz):
 			if(pos[2] > lz and pos[2] < uz):
 				pgcharge += charges.get(j[1].strip(),0)
 		last = j[1:3]
+	#Cross-link acceptors carry one more negative charge than their residue (see write_PGL_itp)
+	pgcharge -= sum(1 for z in PG_acceptor_z if z > lz and z < uz)
 
 	last = None
 	pcharge = 0

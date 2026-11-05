@@ -169,13 +169,14 @@ class TestPeptidoglycan(unittest.TestCase):
         self.assertFalse(any(name.endswith(".itp") and name != "PGL.itp" for name in os.listdir(tmp)))
 
     def test_cross_link_beads(self):
-        # Cross-links join a donor stem to the acceptor's mDAP (bead 7): 3-4 links from the tetrapeptide's D-Ala4
-        # (UPEP bead 8), 3-3 links from the tripeptide's mDAP (UUPEP bead 7). Every 3-4 link written after the first
-        # 3-3 one used to start from bead 7 as well
+        # Cross-links join a donor stem to the acceptor's mDAP D-centre (bead 7): 3-4 links from the tetrapeptide's
+        # D-Ala4 (UPEP bead 8), 3-3 links from the tripeptide's mDAP L-centre (UUPEP bead 5). Every 3-4 link written
+        # after the first 3-3 one used to start from bead 7. Each acceptor's bead 7 is charged (Q5n, -1), and the
+        # system is still neutral
         tmp = tempfile.mkdtemp(prefix="insane_pgx_")
         TMP_DIRS.append(tmp)
         out = subprocess.run([sys.executable, INSANE, "-x", "10", "-y", "10", "-z", "25", "-ps", "7", "-l", "POPE",
-                              "-pgl", "2", "-pgl_z", "0", "-per33", "0.3", "-o", "sys.gro", "-p", "topol.top",
+                              "-pgl", "2", "-pgl_z", "0", "-per33", "1", "-sol", "W", "-posi_c1", "NA", "-negi_c1", "CL", "-o", "sys.gro", "-p", "topol.top",
                               "-o_f", "./"], cwd=tmp, capture_output=True, text=True)
         self.assertEqual(out.returncode, 0, out.stdout[-2000:] + out.stderr[-2000:])
         atoms, links, sec = [], [], None
@@ -187,13 +188,25 @@ class TestPeptidoglycan(unittest.TestCase):
                 elif t and not t.startswith(";"):
                     p = t.split()
                     if sec == "[ atoms ]":
-                        atoms.append((int(p[2]), p[3], p[4]))
+                        atoms.append((int(p[2]), p[3], p[4], p[1], float(p[6])))
                     elif sec in ("[ bonds ]", "[ constraints ]"):
                         a, b = atoms[int(p[0]) - 1], atoms[int(p[1]) - 1]
                         if a[0] != b[0] and a[1].endswith("PEP") and b[1].endswith("PEP"):
-                            links.append((a[1] + ":" + a[2], b[2]))
+                            links.append((a[1] + ":" + a[2], b[2], int(p[1]) - 1))
         self.assertGreater(len(links), 5)
-        self.assertTrue(all(d in ("UPEP:B8", "UUPEP:B7") and acc == "B7" for d, acc in links), links)
+        self.assertTrue(all(d in ("UPEP:B8", "UUPEP:B5") and acc == "B7" for d, acc, _ in links), links)
+        # -per33 1 still leaves some 3-4 links (8 of 8 builds had both kinds)
+        self.assertTrue({"UPEP:B8", "UUPEP:B5"} <= {d for d, _, _ in links}, links)
+        acceptors = {i for _, _, i in links}
+        self.assertEqual(len(acceptors), len(links))
+        for i, a in enumerate(atoms):
+            if a[1].endswith("PEP") and a[2] == "B7":
+                self.assertEqual((a[3], a[4]), ("Q5n", -1.0) if i in acceptors else ("P6", 0.0))
+        # PGL's charge plus the ions Insane added
+        with open(os.path.join(tmp, "topol.top")) as f:
+            mols = dict(l.split()[:2] for l in f.read().split("[ molecules ]")[1].splitlines()[2:] if l.strip())
+        total = sum(a[4] for a in atoms) + int(mols.get("NA", 0)) - int(mols.get("CL", 0))
+        self.assertAlmostEqual(total, 0, places=3)
 
 
 class TestFlatFilling(unittest.TestCase):
