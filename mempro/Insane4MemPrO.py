@@ -2328,8 +2328,9 @@ def pg_component(name):
 	print("ERROR: Cannot find the PG layer component "+name+" in the working directory or "+os.path.dirname(shipped))
 	exit(1)
 
-#Heights of the cross-link acceptor stems, which carry an extra -1 (see write_PGL_itp)
-PG_acceptor_z = []
+#Heights of the stems that carry an extra -1 on top of their residue's charge: cross-link acceptors and tetrapeptides
+#that donate no link (see write_PGL_itp)
+PG_extra_charge_z = []
 
 def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str,prev_nos):  
 	nam_data = load_itp(nam_itp)
@@ -2465,6 +2466,7 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 	
 	cl_atm_start = []
 	acceptors = {}
+	free_tetrapeptides = {}
 	
 	for lyind,layer in enumerate(all_lines):
 		cl_atm_start_p1 = []
@@ -2480,6 +2482,9 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 						else:
 							if(res[6] != -1 or res[13] == 2):
 								data = upep_data
+								#a tetrapeptide that is only a 3-3 acceptor keeps its D-Ala4 carboxylate (bead 8)
+								if(res[6] == -1):
+									free_tetrapeptides[atm_no+8] = res[2]
 							else:
 								data = spep_data
 						
@@ -2533,16 +2538,20 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 					acceptors[iplink[1]+c_atm2] = all_lines[ly2ind][l2ind][b2ind][2]
 	
 	#An acceptor's mDAP loses its free amine (NH3+) to the amide but keeps its carboxylate, so its bead 7 becomes Q5n with
-	#charge -1, like the D-iGlu carboxylate next to its amide (bead 3). Each acceptor takes one link
+	#charge -1, like the D-iGlu carboxylate next to its amide (bead 3). Each acceptor takes one link.
+	#A tetrapeptide (UPEP) that donates no 3-4 link, i.e. one that is only a 3-3 acceptor, ends in a free D-Ala4 carboxylate,
+	#so its bead 8 becomes Q5n with charge -1 too, like the pentapeptide's D-Ala5 carboxylate (SPEP bead 10)
+	charged = dict(acceptors)
+	charged.update(free_tetrapeptides)
 	lines = atoms_str.split("\n")
 	for i,line in enumerate(lines):
 		f = line.split("\t")
-		if(len(f) > 7 and f[1].strip().isdigit() and int(f[1]) in acceptors):
+		if(len(f) > 7 and f[1].strip().isdigit() and int(f[1]) in charged):
 			f[2] = "Q5n"
 			f[7] = "-1.000"
 			lines[i] = "\t".join(f)
 	atoms_str = "\n".join(lines)
-	PG_acceptor_z.extend(acceptors.values())
+	PG_extra_charge_z.extend(charged.values())
 	
 	return [atoms_str,bonds_str,constraints_str,angles_str,dihedrals_str],[resno,atm_no]		
 		
@@ -2822,8 +2831,8 @@ def get_charge(lz,uz):
 			if(pos[2] > lz and pos[2] < uz):
 				pgcharge += charges.get(j[1].strip(),0)
 		last = j[1:3]
-	#Cross-link acceptors carry one more negative charge than their residue (see write_PGL_itp)
-	pgcharge -= sum(1 for z in PG_acceptor_z if z > lz and z < uz)
+	#Cross-link acceptors and tetrapeptides that donate no link carry one more negative charge than their residue (see write_PGL_itp)
+	pgcharge -= sum(1 for z in PG_extra_charge_z if z > lz and z < uz)
 
 	last = None
 	pcharge = 0

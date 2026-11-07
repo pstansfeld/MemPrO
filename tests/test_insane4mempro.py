@@ -171,8 +171,9 @@ class TestPeptidoglycan(unittest.TestCase):
     def test_cross_link_beads(self):
         # Cross-links join a donor stem to the acceptor's mDAP D-centre (bead 7): 3-4 links from the tetrapeptide's
         # D-Ala4 (UPEP bead 8), 3-3 links from the tripeptide's mDAP L-centre (UUPEP bead 5). Every 3-4 link written
-        # after the first 3-3 one used to start from bead 7. Each acceptor's bead 7 is charged (Q5n, -1), and the
-        # system is still neutral
+        # after the first 3-3 one used to start from bead 7. Each acceptor's bead 7 is charged (Q5n, -1), as is the
+        # D-Ala4 carboxylate (bead 8) of a tetrapeptide that donates no link, so every stem carries its all-atom charge,
+        # and the system is still neutral
         tmp = tempfile.mkdtemp(prefix="insane_pgx_")
         TMP_DIRS.append(tmp)
         out = subprocess.run([sys.executable, INSANE, "-x", "10", "-y", "10", "-z", "25", "-ps", "7", "-l", "POPE",
@@ -192,16 +193,35 @@ class TestPeptidoglycan(unittest.TestCase):
                     elif sec in ("[ bonds ]", "[ constraints ]"):
                         a, b = atoms[int(p[0]) - 1], atoms[int(p[1]) - 1]
                         if a[0] != b[0] and a[1].endswith("PEP") and b[1].endswith("PEP"):
-                            links.append((a[1] + ":" + a[2], b[2], int(p[1]) - 1))
+                            links.append((a[1] + ":" + a[2], b[2], int(p[1]) - 1, a[0], b[0]))
         self.assertGreater(len(links), 5)
-        self.assertTrue(all(d in ("UPEP:B8", "UUPEP:B5") and acc == "B7" for d, acc, _ in links), links)
+        self.assertTrue(all(d in ("UPEP:B8", "UUPEP:B5") and acc == "B7" for d, acc, *_ in links), links)
         # -per33 1 still leaves some 3-4 links (8 of 8 builds had both kinds)
-        self.assertTrue({"UPEP:B8", "UUPEP:B5"} <= {d for d, _, _ in links}, links)
-        acceptors = {i for _, _, i in links}
+        self.assertTrue({"UPEP:B8", "UUPEP:B5"} <= {d for d, *_ in links}, links)
+        acceptors = {i for _, _, i, _, _ in links}
         self.assertEqual(len(acceptors), len(links))
         for i, a in enumerate(atoms):
             if a[1].endswith("PEP") and a[2] == "B7":
                 self.assertEqual((a[3], a[4]), ("Q5n", -1.0) if i in acceptors else ("P6", 0.0))
+        # per stem: the iGlu carboxylate (-1), a free C-terminal carboxylate unless the stem donates a link (-1), and
+        # one more per link it accepts (-1); a tetrapeptide that is only a 3-3 acceptor gets a charged bead 8
+        donors = {r for *_, r, _ in links}
+        accepted = {}
+        for *_, r in links:
+            accepted[r] = accepted.get(r, 0) + 1
+        stems = {}
+        for a in atoms:
+            if a[1].endswith("PEP"):
+                stems.setdefault(a[0], [a[1], 0.0, None])[1] += a[4]
+                if a[1] == "UPEP" and a[2] == "B8":
+                    stems[a[0]][2] = (a[3], a[4])
+        free_tetrapeptides = 0
+        for r, (name, q, b8) in stems.items():
+            self.assertAlmostEqual(q, -1 - (r not in donors) - accepted.get(r, 0), places=3, msg=(r, name))
+            if name == "UPEP":
+                self.assertEqual(b8, ("SP2", 0.0) if r in donors else ("Q5n", -1.0))
+                free_tetrapeptides += r not in donors
+        self.assertGreater(free_tetrapeptides, 0)
         # PGL's charge plus the ions Insane added
         with open(os.path.join(tmp, "topol.top")) as f:
             mols = dict(l.split()[:2] for l in f.read().split("[ molecules ]")[1].splitlines()[2:] if l.strip())
