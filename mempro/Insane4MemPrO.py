@@ -2170,7 +2170,8 @@ def cross_link(all_lines,pbcy,cper,per33,lper,oper):
 				if(all_lines[layer_ind,line_ind,bead1_t,9] != lind2 or all_lines[layer_ind,line_ind,bead1_t,10] != bead2_t):
 					all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,9] = lind1
 					all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,10] = bead1_t
-					if(all_lines[layer_ind,line_ind,bead1_t,12] == 0 and rand33 < per33 and all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,9] < 0):
+					#bead 1 donates: a 3-3 link if it is still a free stem (bead 2's [9] was set just above, so testing it here always failed)
+					if(all_lines[layer_ind,line_ind,bead1_t,12] == 0 and rand33 < per33):
 						all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=1
 						all_lines[layer_ind,line_ind,bead1_t,12] +=2
 						all_lines[layer_ind,line_ind,bead1_t,13] = 1
@@ -2200,18 +2201,14 @@ def cross_link(all_lines,pbcy,cper,per33,lper,oper):
 					if(all_lines[layer_ind,line_ind,bead1_t,6] != lind2 or all_lines[layer_ind,line_ind,bead1_t,7] != bead2_t):
 						all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,6] = lind1
 						all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,7] = bead1_t
-						if(all_lines[layer_ind,line_ind,bead1_t,12] == 0 and rand33 < per33 and all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,9] < 0):
-							all_lines[layer_ind,line_ind,bead1_t,12] +=2
-							all_lines[layer_ind,line_ind,bead1_t,13] = 1
-							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,11] = 2
+						#bead 2 donates, as in the unflipped case: the donor of a 3-3 link is the tripeptide ([13] = 1, UUPEP)
+						all_lines[layer_ind,line_ind,bead1_t,12] +=1
+						if(all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] == 0 and rand33 < per33):
+							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=2
+							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,13] = 1
+							all_lines[layer_ind,line_ind,bead1_t,13] = 2
 						else:
-							all_lines[layer_ind,line_ind,bead1_t,12] +=1
-							if(all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] == 0 and rand33 < per33 and all_lines[layer_ind,line_ind,bead1_t,9] < 0):
-								all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=2
-								all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,13] = 1
-								all_lines[layer_ind,line_ind,bead1_t,13] = 2
-							else:
-								all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=1
+							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=1
 
 						if(layer_ind != layer_ind2 or random.random() > oper):
 							all_lines[layer_ind,line_ind,bead1_t,12] = 2
@@ -2226,18 +2223,14 @@ def cross_link(all_lines,pbcy,cper,per33,lper,oper):
 					if(all_lines[layer_ind,line_ind,bead1_t,9] != lind2 or all_lines[layer_ind,line_ind,bead1_t,10] != bead2_t):
 						all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,9] = lind1
 						all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,10] = bead1_t
-						if(all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] == 0 and rand33 < per33 and all_lines[layer_ind,line_ind,bead1_t,9] < 0):
-							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=2
-							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,13] = 1
-							all_lines[layer_ind,line_ind,bead1_t,13] = 2
+						#bead 1 donates, as in the unflipped case: the donor of a 3-3 link is the tripeptide ([13] = 1, UUPEP)
+						all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=1
+						if(all_lines[layer_ind,line_ind,bead1_t,12] == 0 and rand33 < per33):
+							all_lines[layer_ind,line_ind,bead1_t,12] +=2
+							all_lines[layer_ind,line_ind,bead1_t,13] = 1
+							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,13] = 2
 						else:
-							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] +=1
-							if(all_lines[layer_ind,line_ind,bead1_t,12] == 0 and rand33 < per33 and all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,9] < 0):
-								all_lines[layer_ind,line_ind,bead1_t,12] +=2
-								all_lines[layer_ind,line_ind,bead1_t,13] = 1
-								all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,13] = 2
-							else:
-								all_lines[layer_ind,line_ind,bead1_t,12] +=1
+							all_lines[layer_ind,line_ind,bead1_t,12] +=1
 						if(layer_ind != layer_ind2 or random.random() > oper):
 							all_lines[layer_ind,line_ind,bead1_t,12] = 2
 							all_lines[layer_ind2,(line_ind-int(ndirec))%no_lines,bead2_t,12] = 2
