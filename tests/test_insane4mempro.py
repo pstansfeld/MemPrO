@@ -180,7 +180,7 @@ class TestPeptidoglycan(unittest.TestCase):
                               "-pgl", "2", "-pgl_z", "0", "-per33", "1", "-sol", "W", "-posi_c1", "NA", "-negi_c1", "CL", "-o", "sys.gro", "-p", "topol.top",
                               "-o_f", "./"], cwd=tmp, capture_output=True, text=True)
         self.assertEqual(out.returncode, 0, out.stdout[-2000:] + out.stderr[-2000:])
-        atoms, links, sec = [], [], None
+        atoms, links, glycosidic, sec = [], [], [], None
         with open(os.path.join(tmp, "PGL.itp")) as f:
             for line in f:
                 t = line.strip()
@@ -194,6 +194,19 @@ class TestPeptidoglycan(unittest.TestCase):
                         a, b = atoms[int(p[0]) - 1], atoms[int(p[1]) - 1]
                         if a[0] != b[0] and a[1].endswith("PEP") and b[1].endswith("PEP"):
                             links.append((a[1] + ":" + a[2], b[2], int(p[1]) - 1, a[0], b[0]))
+                        if a[0] != b[0] and a[1] in ("NAG", "NAM") and b[1] in ("NAG", "NAM"):
+                            glycosidic.append(((a[0], a[1], a[2]), (b[0], b[1], b[2])))
+        # glycosidic bonds join one sugar's C1 (bead 1) to the next one's O4 side (bead 4), periodic strand closures
+        # included (from the last sugar to the first): no bead takes part in two. Closures used to join the first
+        # sugar's bead 1 to the last one's bead 4
+        self.assertGreater(len(glycosidic), 10)
+        ends = []
+        for a, b in glycosidic:
+            self.assertNotEqual(a[1], b[1], (a, b))
+            self.assertEqual(sorted([a[2], b[2]]), ["B1", "B4"], (a, b))
+            ends += [a, b]
+        self.assertEqual(len(ends), len(set(ends)))
+        self.assertLess(len(glycosidic), len({a[0] for a in atoms if a[1] in ("NAG", "NAM")}) + 1)
         self.assertGreater(len(links), 5)
         self.assertTrue(all(d in ("UPEP:B8", "UUPEP:B5") and acc == "B7" for d, acc, *_ in links), links)
         # -per33 1 still leaves some 3-4 links (8 of 8 builds had both kinds)

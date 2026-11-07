@@ -2433,21 +2433,25 @@ def write_PGL_itp(all_lines,nam_itp,nag_itp,spep_itp,upep_itp,uupep_itp,prev_str
 					resno += 1
 				prev_p = res[5]
 			
+			#A periodic strand is closed like any other glycosidic bond, from the C1 (bead 1) of its last sugar to the O4 side
+			#(bead 4) of its first: the last sugar takes the place of the previous residue in the link templates. This used to
+			#bond the first sugar's bead 1 to the last one's bead 4, two beads that are already linked inside the strand
 			if(line[0][5] == 1 and line[-1][5] == 1):
+				first = atm_start_p2[0]
+				last = atm_start_p2[-1]
 				if(int(line[0][4]) == 0):
-					bonds_str += "\t"+str(1+atm_start_p2[0])+"\t"+str(8+atm_start_p2[-1]-4)+"\t"+str(1)+"\t"+str(0.316)+"\t"+str(28500.00)+"\n"	   
-					for nn,ang in enumerate(ang_link1):
-						angles_str += "\t"+str(ang[0]+atm_start_p2[a_link_add1[nn][0]]+4*a_link_add1[nn][0])+"\t"+str(ang[1]+atm_start_p2[a_link_add1[nn][1]]+4*a_link_add1[nn][1])+"\t"+str(ang[2]+atm_start_p2[a_link_add1[nn][2]]+4*a_link_add1[nn][2])+"\t"+str(ang[3])+"\t"+str(ang[4])+"\t"+str(ang[5])+"\n"
-					for dih in dihedral_link1:
-						dihedrals_str += "\t"+str(dih[0]+atm_start_p2[0])+"\t"+str(dih[1]+atm_start_p2[0])+"\t"+str(dih[2]+atm_start_p2[-1]-4)+"\t"+str(dih[3]+atm_start_p2[-1]-4)+"\t"+str(dih[4])+"\t"+str(dih[5])+"\t"+str(dih[6])+"\t"+str(dih[7])+"\n"				
+					#last NAG (4 beads, template beads 1-4) -> first NAM (template beads 5-9)
+					n_prev,b0,kb,ang_link,dihedral_link = 4,0.316,28500.00,ang_link1,dihedral_link1
 				else:
-					bonds_str += "\t"+str(1+atm_start_p2[0])+"\t"+str(9+atm_start_p2[-1]-5)+"\t"+str(1)+"\t"+str(0.288)+"\t"+str(32000.00)+"\n"	  
-					for nn,ang in enumerate(ang_link2):
-						angles_str += "\t"+str(ang[0]+atm_start_p2[a_link_add2[nn][0]]+5*a_link_add1[nn][0])+"\t"+str(ang[1]+atm_start_p2[a_link_add2[nn][1]]+5*a_link_add1[nn][1])+"\t"+str(ang[2]+atm_start_p2[a_link_add2[nn][2]]+5*a_link_add1[nn][2])+"\t"+str(ang[3])+"\t"+str(ang[4])+"\t"+str(ang[5])+"\n"
-					for dih in dihedral_link2:
-						dihedrals_str += "\t"+str(dih[0]+atm_start_p2[0])+"\t"+str(dih[1]+atm_start_p2[0])+"\t"+str(dih[2]+atm_start_p2[-1]-5)+"\t"+str(dih[3]+atm_start_p2[-1]-5)+"\t"+str(dih[4])+"\t"+str(dih[5])+"\t"+str(dih[6])+"\t"+str(dih[7])+"\n"				
+					#last NAM (5 beads, template beads 1-5) -> first NAG (template beads 6-9)
+					n_prev,b0,kb,ang_link,dihedral_link = 5,0.288,32000.00,ang_link2,dihedral_link2
+				close = lambda i: last+i if i <= n_prev else first+i-n_prev
+				bonds_str += "\t"+str(close(1))+"\t"+str(close(n_prev+4))+"\t"+str(1)+"\t"+str(b0)+"\t"+str(kb)+"\n"
+				for ang in ang_link:
+					angles_str += "\t"+str(close(ang[0]))+"\t"+str(close(ang[1]))+"\t"+str(close(ang[2]))+"\t"+str(ang[3])+"\t"+str(ang[4])+"\t"+str(ang[5])+"\n"
+				for dih in dihedral_link:
+					dihedrals_str += "\t"+str(close(dih[0]))+"\t"+str(close(dih[1]))+"\t"+str(close(dih[2]))+"\t"+str(close(dih[3]))+"\t"+str(dih[4])+"\t"+str(dih[5])+"\t"+str(dih[6])+"\t"+str(dih[7])+"\n"
 				
-				 
 			atm_start_p1.append(atm_start_p2)
 		atm_start.append(atm_start_p1)
 			
