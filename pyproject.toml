@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mempro"
-version = "0.5.0"
+version = "0.5.1"
 description = "Membrane Protein Orientation in Lipid Bilayers"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ gpu = ["jax[cuda12]>=0.6.0,<0.13"]
 
 [project.scripts]
 mempro = "mempro._cli:main"
+insane4mempro = "mempro._cli:insane"
 mempro-leaflets = "mempro.leaflet_check:main"
 
 [tool.setuptools.packages.find]

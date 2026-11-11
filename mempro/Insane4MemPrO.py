@@ -3827,23 +3827,29 @@ else:
 
 
 # options -x, -y, -z take precedence over automatic determination
-pbcSetX = 0
+pbcSetX = [0,0,0]
 if type(options["-x"].value) in (list,tuple):
-	pbcSetX = options["-x"].value
+	pbcSetX = list(options["-x"].value)
 elif options["-x"].value:
 	pbcSetX = [options["-x"].value,0,0]
 
-pbcSetY = 0
+pbcSetY = [0,0,0]
 if type(options["-y"].value) in (list,tuple):
-	pbcSetY = options["-y"].value
+	pbcSetY = list(options["-y"].value)
 elif options["-y"].value:
 	pbcSetY = [0,options["-y"].value,0]
 
-pbcSetZ = 0
+pbcSetZ = [0,0,0]
 if type(options["-z"].value) in (list,tuple):
-	pbcSetZ = options["-z"].value
+	pbcSetZ = list(options["-z"].value)
 elif options["-z"].value:
 	pbcSetZ = [0,0,options["-z"].value]
+
+#Grows a box dimension to the minimum a curved membrane needs. A dimension that was not given is left unset for a
+#flat membrane (there is no minimum to take it from), and reported as missing below.
+def grow_box(vec,ind,curved_size,minimum):
+	if(vec[ind] < minimum and (curved_size > 0 or vec[ind] > 0)):
+		vec[ind] = minimum
 
 
 
@@ -3978,10 +3984,8 @@ if not tm or options["-ct"].value != None or using_temp:
 	bsize,bheight = get_box_size(curvs_mid[0],rcurvs_mid[0],ang_exts[0],add_pore)
 	
    
-	if(pbcSetX[0] < bsize*2+2):
-		pbcSetX[0] = bsize*2+2
-	if(pbcSetY[1] < bsize*2+2):
-		pbcSetY[1] = bsize*2+2  
+	grow_box(pbcSetX,0,bsize,bsize*2+2)
+	grow_box(pbcSetY,1,bsize,bsize*2+2)
 		
 	pbcx = pbcSetX and pbcSetX[0]
 	pbcy = pbcSetY and pbcSetY[1]
@@ -4112,12 +4116,9 @@ if(using_temp or tm):
 		ang_exts = np.array([np.arcsin(curvs_mid[0]*extent),np.arcsin(curvs_mid[1]*extent)])
 		
 		bsize,bheight = get_box_size(curvs_mid[0],rcurvs_mid[0],ang_exts[0],add_pore)
-		if(pbcSetX[0] < bsize*2+2):
-			pbcSetX[0] = bsize*2+2
-		if(pbcSetY[1] < bsize*2+2):
-			pbcSetY[1] = bsize*2+2
-		if(pbcSetZ[2] < bheight*2+10):
-			pbcSetZ[2] = bheight*2+10
+		grow_box(pbcSetX,0,bsize,bsize*2+2)
+		grow_box(pbcSetY,1,bsize,bsize*2+2)
+		grow_box(pbcSetZ,2,bsize,bheight*2+10)
 		
 			
 		pbcx = pbcSetX and pbcSetX[0]
@@ -4273,6 +4274,10 @@ molecules = []
 
 
 # Override lattice vectors if they were set explicitly
+missing_dims = [n for n,v in (("-x",pbcSetX[0]),("-y",pbcSetY[1]),("-z",pbcSetZ[2])) if v <= 0]
+if(missing_dims):
+	print("ERROR: The box size is not set. Give "+", ".join(missing_dims)+" (nm), or -box.")
+	sys.exit(1)
 box = [[0,0,0],[0,0,0],[0,0,0]]
 box[0] = pbcSetX
 box[1] = pbcSetY

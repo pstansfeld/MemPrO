@@ -211,7 +211,7 @@ A more detailed set of tutorials is available [here](MemPrO_tutorials.md).
 
 ## Insane4MemPrO
 
-MemPrO comes with Insane4MemPrO, a CG system builder based on [Insane](https://github.com/Tsjerk/Insane). Insane4MemPrO allows the user to build more complex systems with up to 2 membranes, curvature, multiple proteins and more. When used with MemPrO directly via the `-bd` flag the system is built automatically.
+MemPrO comes with Insane4MemPrO, a CG system builder based on [Insane](https://github.com/Tsjerk/Insane). Insane4MemPrO allows the user to build more complex systems with up to 2 membranes, curvature, multiple proteins and more. When used with MemPrO directly via the `-bd` flag the system is built automatically. With MemPrO installed via pip it can also be run on its own as `insane4mempro` (or `python PATH/TO/Insane4MemPrO.py` from a clone); `insane4mempro -h` lists the flags.
 
 ### Flags
 
@@ -357,7 +357,7 @@ These instructions walk through building a CG system with a curved membrane cont
 First, create a template:
 
 ```
-python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -ct template.pdb -negi_c0 CL -posi_c0 NA
+insane4mempro -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -ct template.pdb -negi_c0 CL -posi_c0 NA
 ```
 
 This creates a POPE-only membrane in a (10,10,50) box (automatically enlarged if needed to accommodate the curvature). The curvature `0.1,0.15,1` specifies a peak curvature of 0.1, a base curvature of 0.15, and the curved region pointing in the positive Z direction, maintained for 6 Å before returning to planar.
@@ -367,7 +367,7 @@ Next, open `template.pdb` in PyMOL. Protein positions are indicated by b-factors
 Then build the final system:
 
 ```
-python PATH/TO/Insane4MemPrO.py -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -in_t template.pdb -fs prots.txt -negi_c0 CL -posi_c0 NA
+insane4mempro -l POPE -sol W -x 10 -y 10 -z 50 -o test.gro -p topol.top -curv 0.1,0.15,1 -fudge 0.3 -curv_ext 6 -in_t template.pdb -fs prots.txt -negi_c0 CL -posi_c0 NA
 ```
 
 Ensure all membrane-relevant values match the template command. `-in_t` supplies the edited template and `-fs` supplies a text file listing the same number of proteins as edited b-factors. The `-p` flag produces a rudimentary `.top` file; protein-related entries will need to be updated but all other values are correct.
