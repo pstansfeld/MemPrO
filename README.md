@@ -83,6 +83,7 @@ MemPrO is intended to be run on PDB files, and will output the following files:
   * `oriented_rank_{n}.pdb` — The nth ranked configuration. Contains the protein (atomistic or coarse grain depending on the input) and a dummy membrane. The rank is based on number of hits (or potential, see `-rank` flag).
   * `info_rank_{n}.txt` — Some information about the orientation.
   * `CG_System_rank_{n}/` — A CG system built using Insane4MemPrO for the rank N configuration, including a topology file. Only produced when using `-bd` and `-bd_args`.
+  * `Topology/` — The topology of each chain of the rank N configuration: `topology_chain_X.png`, `topology.json` and `residues.csv` (see [Topology diagrams](#topology-diagrams)). Written for atomistic inputs, for the ranks set by `-topo` (rank 1 by default).
   * `PG_potential_curve.png` — The potential curve for the position of the PG cell wall. Only produced with `-pg`.
   * `cross-section_area_curve.png` — The cross-sectional area of the segment of the protein passing through the PG layer. Only produced with `-pg`.
   * `Z_potential_curve.png` — Potential against Z position of the final orientation. Gives an idea of the nature of the minima.
@@ -158,6 +159,8 @@ Tested on 22 proteins used to develop the rules (OmpA, OmpF, OmpLA, FhuA, FadL, 
 **-insane, --insane_path** — Path to `Insane4MemPrO.py`. Defaults to the same directory as `MemPrO.py` (or the installed package directory). Only required when using `-bd`.
 
 **-bd, --build_system** — Number of final ranked configurations to build as CG MD-ready systems using Insane4MemPrO. Default is 0 (no systems built). Currently only works with coarse grain input files.
+
+**-topo, --topology** — Number of final ranked configurations to write the topology of (`Rank_{n}/Topology/`, see [Topology diagrams](#topology-diagrams)). Default is 1; 0 writes none. Atomistic input files only, as the secondary structure is needed; takes a few seconds per rank.
 
 **-bd_args, --build_arguments** — Arguments to pass to Insane4MemPrO, primarily lipid composition, solvent type etc. Required when using `-bd`.
 
@@ -383,6 +386,21 @@ mempro-leaflets eq.gro
 ```
 
 (or `python PATH/TO/leaflet_check.py eq.gro`; several frames or a multi-frame `.gro` from `gmx trjconv` can be given and are averaged). For each membrane it reports each leaflet's available area (box area minus the protein's footprint in that leaflet, as for Insane4MemPrO `-footprint map`, with the leaflets extending to their mean phosphate planes in the frame), the area its lipids should occupy (from the Insane4MemPrO table, with the same `-apl`, `-temp` and `-apl_ff` options), how stretched or compressed each leaflet is, and a suggested `-asym` to rebuild with so both are equally strained. This is area matching, an approximation to zero differential stress between the leaflets, so treat the suggestion as a guide, rebuild and check again. `-footprint section` uses the earlier definition instead, the protein's largest cross-section in 0.5 nm slices with bead radius `-radius` (default 0.26 nm). `-asym` applies to every membrane in the system.
+
+## Topology diagrams
+
+For an atomistic input MemPrO writes the per-chain topology shown on MemProtMD, without a simulation, to `Rank_{n}/Topology/` (`-topo`), with flat membrane lines. MemPrOD writes it again to `Topology/` in its output folder, with the membrane lines following the deformations it predicts. `mempro-topology` (or `python PATH/TO/topology.py`) makes the same output from existing results:
+
+```
+mempro-topology -f Orient/Rank_1/oriented_rank_1.pdb -d Deformations/ -o Topology
+```
+
+For each chain it writes `topology_chain_X.png`: helices as blue rectangles and strands as green arrows, numbered with their first and last residue, and loops as lines, plotted by height (z) against the distance travelled in the membrane plane, with the membrane lines, the membrane thickness and the number of transmembrane helices and strands. `topology.json` holds the same data in the layout of the MemProtMD results (`topology`, `chains`, `surface_residues`, `residue_leaflet_zs`) and `residues.csv` the values for each residue.
+
+* The membrane boundaries come from `info_rank_N.txt` beside the structure (or `-i`, or `-mt`/`-dm`/`-mt_o`). A span is transmembrane if it crosses the middle half of the membrane from one side to the other.
+* `-d` gives a MemPrOD output folder; the membrane lines then follow MemPrOD's surfaces nearest each residue. Without it the lines are flat. MemPrOD can also move the membrane along z; a warning is printed if it moved more than 2 Å, and `--boundaries memprod` counts the spans with MemPrOD's bulk membrane instead of MemPrO's.
+* Secondary structure is from `mkdssp` if it is installed, otherwise from a built-in implementation of the DSSP method (`--dssp`). The input must be atomistic.
+* **Approximation:** MemProtMD decides which spans are lipid-facing, and whether a chain is membrane spanning, embedded, in a single leaflet or touching, from lipid and solvent contacts in a simulation. Here they are estimated from the static structure: the solvent accessible surface of each residue is split into the part within the membrane that can be reached from outside the protein in the membrane plane (lipid; head groups within 5 Å of a boundary, tails deeper), the part within the membrane enclosed by protein (a pore or cavity, counted as solvent) and the part outside the membrane (solvent). `--exposure_cutoff` sets the relative accessibility from which a residue counts as in contact (default 0.1). Lipids inside an enclosed ring are not recognised.
 
 ## My protein didn't orient correctly
 

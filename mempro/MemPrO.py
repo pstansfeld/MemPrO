@@ -3756,6 +3756,8 @@ def main():
 	parser.set_defaults(build_system=0)
 	parser.add_argument("-bd_args","--build_arguments",help="Arguments to pass to insane when building system")
 	parser.set_defaults(build_arguments="")
+	parser.add_argument("-topo","--topology",help="Write the topology (arrow diagram of each chain, transmembrane helices and strands) for ranks < n; atomistic input only (Default: n=1)")
+	parser.set_defaults(topology=1)
 	parser.add_argument("-ch","--charge",help="Partial charge of (inner) membrane (Default: 0)")
 	parser.set_defaults(charge=0)
 	parser.add_argument("-ch_o","--charge_outer",help="Partial charge of outer membrane (Default: 0)")
@@ -3879,6 +3881,15 @@ def main():
 		exit()
 	if(build_system < 0):
 		print("ERROR: Could not read value of -bd. Must be an integer > -1.")
+		exit()
+
+	try:
+		topology_ranks = int(args.topology)
+	except:
+		print("ERROR: Could not read value of -topo. Must be an integer > -1.")
+		exit()
+	if(topology_ranks < 0):
+		print("ERROR: Could not read value of -topo. Must be an integer > -1.")
 		exit()
 
 	if(args.curvature):
@@ -4053,6 +4064,28 @@ def main():
 	if(build_system > 0):
 		print("Building system...")
 		Mem_test.build_oriented(orient_dir,args.build_arguments,args.insane_path)
+		print("Done")
+
+	if(topology_ranks > 0):
+		print("Writing topology...")
+		if(not PDB_helper_test.detect_atomistic()):
+			print("Topology not written: it needs an atomistic input, for the secondary structure (DSSP).")
+		else:
+			try:
+				from mempro import topology
+			except ImportError:
+				#Run as a script from a clone
+				sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
+				import topology
+			for i in range(1,topology_ranks+1):
+				rank_dir = orient_dir+"Rank_"+str(i)+"/"
+				if(not os.path.exists(rank_dir+"oriented_rank_"+str(i)+".pdb")):
+					break
+				#Never the reason for a run to fail: the orientation is already written
+				try:
+					topology.write_topology(rank_dir+"oriented_rank_"+str(i)+".pdb",rank_dir+"Topology",rank_dir+"info_rank_"+str(i)+".txt",quiet=True)
+				except Exception as err:
+					print("WARNING: Could not write the topology of rank "+str(i)+": "+str(err))
 		print("Done")
 
 	print("Making graphs...")
