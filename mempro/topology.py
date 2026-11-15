@@ -203,7 +203,7 @@ def read_pdb(path):
 
 
 def read_info(path):
-    """Membrane thicknesses, -dm distance and curvature from MemPrO's info_rank_N.txt."""
+    """Membrane thicknesses, -dm distance and curvature from MemPrO's info_rank_N.txt, or from the oriented.pdb of -sl."""
     info = {}
     patterns = {
         "distance": r"Iter-Membrane distance[^:]*:\s*([-+0-9.eE]+)",
@@ -213,6 +213,9 @@ def read_info(path):
     }
     with open(path) as fh:
         text = fh.read()
+    if path.lower().endswith(".pdb"):
+        # A streamlined MemPrO output (-sl): the information is in REMARK lines
+        text = "\n".join(line for line in text.split("\n") if line.startswith("REMARK MemPrO"))
     for key, pattern in patterns.items():
         match = re.search(pattern, text)
         if match:
@@ -226,7 +229,7 @@ def get_membranes(info, dummy_z, thickness=None, outer_thickness=None, distance=
     Command line values come first, then the info file, then the dummy beads of the oriented PDB.
     One membrane, or for MemPrO -dm the inner membrane (at -z) and the outer one (at +z).
     """
-    source = "MemPrO info file"
+    source = "MemPrO"
     if thickness is not None:
         source = "command line"
     thickness = thickness if thickness is not None else info.get("thickness")
@@ -1277,6 +1280,13 @@ def build_topology(pdb_fn, info_fn=None, memprod_dir=None, dssp="auto", mkdssp=N
 
 
 def find_info(pdb_fn):
+    # A streamlined MemPrO output (-sl) carries its own information
+    with open(pdb_fn) as fh:
+        for line in fh:
+            if line.startswith("REMARK MemPrO") and "Membrane Thickness" in line:
+                return pdb_fn
+            if line.startswith("ATOM"):
+                break
     found = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(pdb_fn)), "info_rank_*.txt")))
     match = re.search(r"rank_(\d+)", os.path.basename(pdb_fn))
     if match:

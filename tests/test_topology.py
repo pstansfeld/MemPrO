@@ -59,6 +59,21 @@ class TestMembranes(unittest.TestCase):
         (mem,) = topology.get_membranes(info, [])
         self.assertEqual((mem["lower"], mem["upper"]), (-19.0, 19.0))
 
+    def test_streamlined_pdb_carries_its_membrane(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pdb = os.path.join(tmp, "oriented.pdb")
+            with open(pdb, "w") as fh:
+                fh.write("REMARK MemPrO Iter-Membrane distance (for -dm only): 0. A\n")
+                fh.write("REMARK MemPrO (Inner) Membrane Thickness: 32.5 A\n")
+                fh.write("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+            self.assertEqual(topology.find_info(pdb), pdb)
+            (mem,) = topology.get_membranes(topology.read_info(pdb), [])
+            self.assertEqual((mem["lower"], mem["upper"]), (-16.25, 16.25))
+            plain = os.path.join(tmp, "plain.pdb")
+            with open(plain, "w") as fh:
+                fh.write("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+            self.assertIsNone(topology.find_info(plain))
+
     def test_dual_membrane(self):
         inner, outer = topology.get_membranes({"thickness": 38.0, "outer_thickness": 34.0, "distance": 200.0}, [])
         self.assertEqual((inner["lower"], inner["upper"]), (-119.0, -81.0))
