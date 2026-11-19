@@ -494,15 +494,17 @@ class PDB_helper:
 		self.bead_types = np.concatenate((self.bead_types,bead_types2))
 		self.reses = np.concatenate((self.reses,reses3))
 		self.b_vals = np.concatenate((self.b_vals,b_vals2))	
-		self.b_vals = jnp.array(self.b_vals)	
-		self.poses = jnp.array(self.poses)
-		self.all_poses = jnp.array(self.all_poses)
-		self.reses = jnp.array(self.reses)
-		self.bead_types = jnp.array(self.bead_types)
+		#Done in NumPy (eager JAX operations would each be compiled for this protein's numbers of beads and atoms)
+		fdt = jnp.zeros(0).dtype
+		self.poses = np.asarray(self.poses,dtype=fdt)
+		self.all_poses = np.asarray(np.array(self.all_poses),dtype=fdt)
 		pos_mean = np.mean(self.poses,axis=0)
-		self.poses = self.poses - pos_mean
-		self.all_poses = self.all_poses - pos_mean
-		self.b_vals = self.b_vals/jnp.max(self.b_vals+1e-9)
+		self.poses = jnp.asarray(self.poses - pos_mean)
+		self.all_poses = jnp.asarray(self.all_poses - pos_mean)
+		self.reses = jnp.asarray(self.reses)
+		self.bead_types = jnp.asarray(self.bead_types)
+		self.b_vals = np.asarray(self.b_vals,dtype=fdt)
+		self.b_vals = jnp.asarray(self.b_vals/np.max(self.b_vals+1e-9))
 		return pos_mean		
 		
 
@@ -592,18 +594,19 @@ class PDB_helper:
 				else:
 					self.b_vals.append(b_val)
 
-		# Convert to JAX arrays
-		self.poses = jnp.array(self.poses)
-		pos_mean = jnp.mean(self.poses, axis=0)
-		self.poses -= pos_mean
+		# Convert to JAX arrays (worked out in NumPy, as eager JAX operations would each be compiled for this size)
+		fdt = jnp.zeros(0).dtype
+		self.poses = np.asarray(self.poses,dtype=fdt)
+		pos_mean = np.mean(self.poses, axis=0)
+		self.poses = jnp.asarray(self.poses - pos_mean)
 
-		self.reses = jnp.array(self.reses)
-		self.bead_types = jnp.array(self.bead_types)
-		self.b_vals = jnp.array(self.b_vals)
-		self.b_vals /= jnp.max(self.b_vals + 1e-9)
+		self.reses = jnp.asarray(self.reses)
+		self.bead_types = jnp.asarray(self.bead_types)
+		self.b_vals = np.asarray(self.b_vals,dtype=fdt)
+		self.b_vals = jnp.asarray(self.b_vals/np.max(self.b_vals + 1e-9))
 
-		self.all_poses = self.poses.copy()
-		self.map_to_beads = jnp.arange(self.poses.shape[0])
+		self.all_poses = self.poses
+		self.map_to_beads = np.arange(self.poses.shape[0])
 
 		return pos_mean
 
@@ -622,7 +625,7 @@ class PDB_helper:
 			pos_mean = self.load_cg_pdb()
 		#Setting read b-vals to 1 if not using weights
 		if(not self.use_weights and self.ranges.size == 0):
-			self.b_vals = self.b_vals.at[:].set(1.0)
+			self.b_vals = jnp.asarray(np.ones(self.b_vals.shape,dtype=self.b_vals.dtype))
 		return pos_mean
 
 	### Begining of code for getting the surface of the CG protein ###
@@ -640,49 +643,16 @@ class PDB_helper:
 		self.ball,_ = jax.lax.scan(ball_fun_3,self.ball,np.arange(bsize))
 		return self.ball
 		
-	@jax.jit
-	def fire_pointv3(self,fpoint,direc,points,hit_points):
-		rad = 7
-		best_ind = jnp.array([0.0,1e9])
-		direc = direc/jnp.linalg.norm(direc)
-		@jax.vmap
-		def fp3_fun(ind):
-			pdir = points[ind]-fpoint
-			dist = jnp.abs(jnp.dot(pdir,direc))
-			side_dist = jnp.abs(jnp.power(jnp.linalg.norm(pdir),2)-dist*dist)
-			test_val1 = rad*rad-side_dist
-			distance = dist-jnp.sqrt(test_val1)
-			return distance
-			
-		shard_nn = jax.lax.with_sharding_constraint(jnp.arange(points.shape[0]),sharding0)
-		disters = fp3_fun(shard_nn)
-		inder = jnp.nanargmin(disters)
-		hit_points = hit_points.at[inder].set(hit_points[inder]+1)
-		return hit_points
-		
-		
-		
-		
-		
-	@partial(jax.jit,static_argnums=(1,2))	
-	def fire_n_points(self,nn,nps,fpoints,direcs,points,hit_points):
-		@jax.vmap
-		def fnp(ind):
-			ret_points = jax.lax.with_sharding_constraint(jnp.zeros(nps),sharding0)
-			ret_points = self.fire_pointv3(fpoints[ind],direcs[ind],points,ret_points)
-			return ret_points
-			
-		shard_nn = jax.lax.with_sharding_constraint(jnp.arange(nn),sharding0)
-		ret_points = fnp(shard_nn)
-		hit_points = hit_points.at[:,0].set( hit_points[:,0]+ jnp.sum(ret_points,axis=0))
-		return hit_points
-				
-	def get_surface_v2(self,points,hit_points,def_surf):
+	#Finds the surface beads by firing rays at the protein from random directions (around random beads) and counting
+	#the beads each ray hits first, until a round of rays finds almost no new beads. points are padded to a size
+	#step (get_surface): padding beads copy the last bead, so a ray hitting it hits the real bead first (ties go to
+	#the lower index) and padding is never on the surface; rays are only aimed at real beads (pos_num)
+	def get_surface_v2(self,points,hit_points,def_surf,pos_num):
 		nnn = 5000
 		nnnr = nnn%no_cpu
 		nnn -= nnnr
-		no_runs = nnn//no_cpu
-		maxer = jnp.max(jnp.linalg.norm(points,axis=1))
+		np_points = np.asarray(points)
+		maxer = np.max(np.linalg.norm(np_points[:pos_num],axis=1))
 	
 		mrange = int(maxer*2+20)
 		chh1 = nnn
@@ -696,15 +666,15 @@ class PDB_helper:
 			else:
 				dpoints = np.random.rand(nnn,2)*2*np.pi
 			dpoints2 = np.array([[np.sin(i[0]),np.cos(i[0])*np.sin(i[1]),np.cos(i[0])*np.cos(i[1])] for i in dpoints])
-			inder = np.array([np.random.randint(0,points.shape[0]) for i in range(nnn)],dtype=int)
-			fpoints = jnp.array(mrange*dpoints2+points[inder])
-			direcs = jnp.array(-dpoints2)
-			start_h = hit_points[hit_points==0].shape[0]			
-			hit_points = self.fire_n_points(nnn,hit_points.shape[0],fpoints,direcs,points,hit_points)
-			chh = start_h - hit_points[hit_points==0].shape[0]
+			inder = np.array([np.random.randint(0,pos_num) for i in range(nnn)],dtype=int)
+			fpoints = jnp.asarray((mrange*dpoints2).astype(np_points.dtype)+np_points[inder])
+			direcs = jnp.asarray((-dpoints2).astype(np_points.dtype))
+			start_h = int(np.sum(np.asarray(hit_points)==0))
+			hit_points = fire_n_points(nnn,fpoints,direcs,points,hit_points)
+			chh = start_h - int(np.sum(np.asarray(hit_points)==0))
 
-		hit_points = hit_points.at[hit_points>0].set(1)
-		return hit_points
+		hit_points = np.asarray(hit_points)
+		return np.where(hit_points>0,1.0,hit_points).astype(hit_points.dtype)
 
 
 
@@ -731,76 +701,61 @@ class PDB_helper:
 		return jax.lax.map(is_surf_fun,jnp.arange(points.shape[0]),batch_size=64)
 		
 	#This function gets the surface residues of a given cg protein
+	#The beads are padded to a size step (pad_size, a multiple of the number of devices) so the compiled programs
+	#are shared between proteins; the selections and means are done in NumPy, which compiles nothing
 	def get_surface(self):
 		bsize = 19#19#38
 		brad = 4
 		self.create_ball(brad,bsize)
 		pos_num = self.poses.shape[0]
-		new_num = pad_num(self.poses)
+		new_num = pad_size(pos_num)
+		new_num = no_cpu*int(np.ceil(new_num/no_cpu))
 		
-		
-		self.poses = jnp.pad(self.poses,((0,new_num-pos_num),(0,0)),mode="edge")
+		np_poses = np.asarray(self.poses)
+		padded = np.concatenate([np_poses,np.repeat(np_poses[-1:],new_num-pos_num,axis=0)])
+		valid = np.arange(new_num) < pos_num
+		poses = jnp.asarray(padded)
 		
 		#Calculating normals at each point of the cg protein
-		timer = time.time()
-		#The normal at a bead points away from the mean of all beads within 32 A (beads processed in batches to bound memory)
-		def normal_fun_2(ind):
-			near = jnp.linalg.norm(self.poses-self.poses[ind],axis=1)<32
-			normal = jnp.sum(jnp.where(near[:,None],self.poses[ind]-self.poses,0.0),axis=0)/jnp.sum(near)
-			normal = normal/jnp.linalg.norm(normal)
-			return normal
-		normals = jax.lax.map(normal_fun_2,jnp.arange(self.poses.shape[0]),batch_size=256)
-		
-		self.normals = jnp.array(jax.device_get(normals))#jax.device_put(normals)#jax.device_put_sharded([normals],[devices[0]])
-
-		jax.block_until_ready(self.normals)
-		self.surface = jnp.zeros((self.poses.shape[0],1))
-		
+		normals = surface_normals(poses,jnp.asarray(valid))
+		normals = jnp.asarray(np.asarray(normals))
+		surface = jnp.asarray(np.zeros((new_num,1),dtype=padded.dtype))
 		
 		if(self.lsurf):
-			bpoints,mrad = get_binned_points(np.array(self.poses),16)
-			is_surf = self.get_surface_v3(jnp.array(self.poses),jnp.array(bpoints),mrad).block_until_ready()
-			self.surface = self.surface.at[:,0].set(jnp.array(is_surf))
+			bpoints,mrad = get_binned_points(padded,16)
+			is_surf = self.get_surface_v3(poses,jnp.array(bpoints),mrad).block_until_ready()
+			surface = np.zeros((new_num,1),dtype=padded.dtype)
+			surface[:,0] = np.asarray(is_surf)
+			surface[pos_num:] = 0
 		else:
-			shard_points = jax.device_put(self.poses,sharding)
-			shard_surface = jax.device_put(self.surface,sharding)
-			shard_surface = self.get_surface_v2(shard_points,shard_surface,self.def_surf).block_until_ready()
-			self.surface = jnp.array(jax.device_get(shard_surface))
+			shard_points = jax.device_put(poses,sharding)
+			shard_surface = jax.device_put(surface,sharding)
+			surface = self.get_surface_v2(shard_points,shard_surface,self.def_surf,pos_num)
 		
-		surface_number = jnp.sum(self.surface,dtype = "int")
-		#A new array is created containg only surface positions
-		self.surface_poses = self.poses[self.surface[:,0] == 1]
-
-		timer = time.time()
 		#Each point on the surface had an asocciated sphere indicating directions which are exposed
 		#Here we flag the directions which are free
 		#A direction is free if no bead lies within 4 A of the point 4 A out along the normal plus that direction
-		def sphere_fun_3(ind):
-			test_points = self.poses[ind]+normals[ind]*4+self.ball
-			dists = jnp.linalg.norm(test_points[:,None,:]-self.poses[None,:,:],axis=2)
-			on_surf_ball = jnp.all(jnp.logical_not(dists<4),axis=1).astype(int)
-			return on_surf_ball*self.surface[ind]
-		spheres = jax.lax.map(sphere_fun_3,jnp.arange(self.poses.shape[0]),batch_size=32)
+		spheres = np.asarray(free_directions(poses,normals,jnp.asarray(surface),self.ball))
 		
-		self.poses = self.poses[:pos_num]
-		self.surface = self.surface[:pos_num,0]
-		#Here we set some values associated with each bead to be for surface only
-		surface_sphere = spheres[:pos_num][self.surface == 1]
-		self.all_bead_types = self.bead_types.copy()
-		self.bead_types = self.bead_types[self.surface == 1]
-		self.surf_b_vals = self.b_vals[self.surface == 1]
+		surface = np.asarray(surface)[:pos_num,0]
+		on_surf = surface == 1
+		self.normals = jnp.asarray(np.asarray(normals)[:pos_num])
+		self.surface = jnp.asarray(surface)
+		surface_poses = np_poses[on_surf]
+		ball = np.asarray(self.ball)
+		#The free directions of each surface bead as vectors (flags times the directions of the ball)
+		spheres = spheres[:pos_num][on_surf][:,:,None]*ball[None,:,:]
 		
-		jax.block_until_ready(spheres)
-		jax.block_until_ready(self.poses)
+		np_bead_types = np.asarray(self.bead_types)
+		self.all_bead_types = self.bead_types
+		self.bead_types = jnp.asarray(np_bead_types[on_surf].astype(int))
+		self.surf_b_vals = jnp.asarray(np.asarray(self.b_vals)[on_surf])
 		
-		#Here we set the cartesean directions for each sphere (as before we only had flags)
-		#surface_number counts the padding rows too (they match surface_poses), and their spheres stay zero
-		self.spheres = jnp.zeros((surface_number,self.ball.shape[0],3)).at[:surface_sphere.shape[0]].set(surface_sphere[:,:,None]*self.ball[None,:,:])
-		surf_mean = jnp.mean(self.surface_poses,axis=0)
-		self.surface_poses = self.surface_poses-surf_mean
-		self.poses = self.poses-surf_mean
-		self.all_poses = self.all_poses-surf_mean
-		self.bead_types = jnp.array(self.bead_types,dtype="int")
+		surf_mean = np.mean(surface_poses,axis=0)
+		self.surface_poses = jnp.asarray(surface_poses-surf_mean)
+		self.spheres = jnp.asarray(spheres.astype(np_poses.dtype))
+		self.poses = jnp.asarray(np_poses-surf_mean)
+		self.all_poses = jnp.asarray(np.asarray(self.all_poses)-surf_mean)
 		
 		
 	#For perisplasm spanning proteins it starts oriented with its farthest point at [0,0,1]
@@ -816,33 +771,33 @@ class PDB_helper:
 		self.surface_poses = position_point_jit(0,-ang1,ang2,self.surface_poses)
 		self.poses = position_point_jit(0,-ang1,ang2,self.poses)
 		self.all_poses = position_point_jit(0,-ang1,ang2,self.all_poses)
-		def rot_spheres(carry,ind):
-			new_spheres = position_point_jit(0,-ang1,ang2,self.spheres[ind])
-			return carry,new_spheres
-		_,self.spheres = jax.lax.scan(rot_spheres,0,jnp.arange(self.spheres.shape[0]))
+		self.spheres = rotate_spheres(0,-ang1,ang2,self.spheres)
 	
 		
 	def starting_orientation_v2(self):
-		all_dists = jnp.linalg.norm(self.surface_poses,axis=1)
-		max_ind = jnp.argmax(all_dists)
-		max_inds = jnp.argsort(all_dists)
-		far = self.surface_poses[max_ind]
+		#Index and mean work in NumPy (compiles nothing); the rotations are padded (position_point_jit)
+		sp = np.asarray(self.surface_poses)
+		all_dists = np.linalg.norm(sp,axis=1)
+		max_ind = np.argmax(all_dists)
+		max_inds = np.argsort(all_dists,kind="stable")
+		far = sp[max_ind]
 		
-		all_dists2 = jnp.linalg.norm(self.surface_poses-far,axis=1)
-		min_inds = jnp.argsort(all_dists2)
+		all_dists2 = np.linalg.norm(sp-far,axis=1)
+		min_inds = np.argsort(all_dists2,kind="stable")
 		
-		allowed1 = min_inds[all_dists2[min_inds]<jnp.linalg.norm(far)]
+		allowed1 = min_inds[all_dists2[min_inds]<np.linalg.norm(far)]
 		
-		allowed2 = max_inds[all_dists[max_inds]>jnp.linalg.norm(far)*0.85]
-		all_allowed = jnp.intersect1d(allowed1,allowed2)
+		allowed2 = max_inds[all_dists[max_inds]>np.linalg.norm(far)*0.85]
+		all_allowed = np.intersect1d(allowed1,allowed2)
 		
 		
-		far = jnp.mean(self.surface_poses[all_allowed],axis=0)
-		far_dir = far/jnp.linalg.norm(far)
-		ang2 = jnp.arccos(jnp.dot(far_dir,jnp.array([0,0,1])))
-		far_projxy = far_dir.at[2].set(0)
-		far_projxy /= jnp.linalg.norm(far_projxy)
-		ang1 = jnp.arccos(jnp.dot(far_projxy,jnp.array([0,1,0])))
+		far = np.mean(sp[all_allowed],axis=0)
+		far_dir = far/np.linalg.norm(far)
+		ang2 = np.arccos(np.dot(far_dir,np.array([0,0,1],dtype=sp.dtype)))
+		far_projxy = far_dir.copy()
+		far_projxy[2] = 0
+		far_projxy /= np.linalg.norm(far_projxy)
+		ang1 = np.arccos(np.dot(far_projxy,np.array([0,1,0],dtype=sp.dtype)))
 		
 		self.surface_poses = position_point_jit(0,-ang1,ang2,self.surface_poses).block_until_ready()
 	
@@ -850,10 +805,7 @@ class PDB_helper:
 	
 		self.all_poses = position_point_jit(0,-ang1,ang2,self.all_poses).block_until_ready()
 		
-		def rot_spheres(carry,ind):
-			new_spheres = position_point_jit(0,-ang1,ang2,self.spheres[ind])
-			return carry,new_spheres
-		_,self.spheres = jax.lax.scan(rot_spheres,0,jnp.arange(self.spheres.shape[0]))
+		self.spheres = rotate_spheres(0,-ang1,ang2,self.spheres)
 		
 		return 0
 	
@@ -863,10 +815,7 @@ class PDB_helper:
 		self.surface_poses = position_point_jit(in_depth,ang1,ang2,self.surface_poses)
 		self.poses = position_point_jit(in_depth,ang1,ang2,self.poses)
 		self.all_poses = position_point_jit(in_depth,ang1,ang2,self.all_poses)
-		def rot_spheres(carry,ind):
-			new_spheres = position_point_jit(0,ang1,ang2,self.spheres[ind])
-			return carry,new_spheres
-		_,self.spheres = jax.lax.scan(rot_spheres,0,jnp.arange(self.spheres.shape[0]))
+		self.spheres = rotate_spheres(0,ang1,ang2,self.spheres)
 		
 	#Turns the protein (positions, surface, spheres and normals) so its long axis, the first principal axis of its
 	#surface beads, lies along z. -dm estimates the membranes' starting separation and depth along z before
@@ -884,8 +833,8 @@ class PDB_helper:
 		if s < 1e-12:
 			return 0.0
 		vx = np.array([[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]])
-		rot = jnp.asarray(np.eye(3)+vx+vx@vx*((1-c)/s**2))
-		turn = lambda x: jnp.einsum("...j,ij->...i",x,rot)
+		rot = np.asarray(np.eye(3)+vx+vx@vx*((1-c)/s**2),dtype=np.asarray(self.surface_poses).dtype)
+		turn = lambda x: jnp.asarray(np.einsum("...j,ij->...i",np.asarray(x),rot))
 		self.surface_poses = turn(self.surface_poses)
 		self.poses = turn(self.poses)
 		self.all_poses = turn(self.all_poses)
@@ -895,21 +844,13 @@ class PDB_helper:
 		return float(np.degrees(np.arccos(min(1.0,c))))
 
 	def recenter_bvals(self):
-		tot = jnp.zeros(4) 
-		def recenter_fun(tot,ind):
-			def bzero(tot):
-				return tot
-			def not_bzero(tot):
-				tot = tot.at[:3].set(tot[:3]+self.surface_poses[ind])
-				tot = tot.at[3].set(tot[3]+1)
-				return tot
-			tot = jax.lax.cond(self.surf_b_vals[ind]<1e-5,bzero,not_bzero,tot)
-			return tot,ind
-		tot,_ = jax.lax.scan(recenter_fun,tot,jnp.arange(self.surface_poses.shape[0]))
-		surf_mean = tot[:3]/tot[3]
-		self.surface_poses = self.surface_poses-surf_mean
-		self.poses = self.poses-surf_mean
-		self.all_poses = self.all_poses-surf_mean
+		#Mean of the surface beads with a weight (b-value) of at least 1e-5, in NumPy
+		sp = np.asarray(self.surface_poses)
+		use = np.asarray(self.surf_b_vals) >= 1e-5
+		surf_mean = np.sum(sp[use],axis=0)/np.sum(use)
+		self.surface_poses = jnp.asarray(sp-surf_mean)
+		self.poses = jnp.asarray(np.asarray(self.poses)-surf_mean)
+		self.all_poses = jnp.asarray(np.asarray(self.all_poses)-surf_mean)
 	
 	def get_data(self):		
 		return (self.surface,self.spheres,self.surface_poses,self.bead_types,self.surf_b_vals,self.poses,self.all_poses,self.b_vals,self.build_no,np.array(self.map_to_beads,dtype=int),self.normals,self.all_bead_types)
@@ -1056,14 +997,24 @@ class MemBrain:
 		size = pad_size(n)
 		self.n_surf = n
 		print("Surface beads:",n,"(padded to "+str(size)+")")
-		fill =np.concatenate([np.arange(n),np.full(size-n,n-1)]).astype(int)
-		self.p_surface_poses = jnp.asarray(self.surface_poses)[fill]
-		self.p_bead_types = jnp.asarray(self.bead_types)[np.minimum(fill,self.bead_types.shape[0]-1)]
-		self.p_spheres = jnp.zeros((size,)+tuple(self.spheres.shape[1:]),dtype=self.spheres.dtype).at[:self.spheres.shape[0]].set(self.spheres)
-		self.p_weights = jnp.zeros(size,dtype=self.surf_b_vals.dtype).at[:self.surf_b_vals.shape[0]].set(self.surf_b_vals)
+		#Built in NumPy, as eager JAX operations would each be compiled for this protein's number of surface beads
+		fill = np.concatenate([np.arange(n),np.full(size-n,n-1)]).astype(int)
+		sp = np.asarray(self.surface_poses)
+		bt = np.asarray(self.bead_types)
+		sph = np.asarray(self.spheres)
+		wt = np.asarray(self.surf_b_vals)
+		self.p_surface_poses = jnp.asarray(sp[fill])
+		self.p_bead_types = jnp.asarray(bt[np.minimum(fill,bt.shape[0]-1)])
+		p_spheres = np.zeros((size,)+sph.shape[1:],dtype=sph.dtype)
+		p_spheres[:sph.shape[0]] = sph
+		self.p_spheres = jnp.asarray(p_spheres)
+		p_weights = np.zeros(size,dtype=wt.dtype)
+		p_weights[:wt.shape[0]] = wt
+		self.p_weights = jnp.asarray(p_weights)
+		self.p_valid = jnp.asarray(np.arange(size) < n)
 		#calc_pot_at_z_jit weights each free direction of a bead by surf_b_vals indexed by direction (not by bead),
-		#which is kept as it was; it is worked out here on the unpadded array so out-of-range indices behave the same
-		self.p_dir_bvals = jnp.asarray(self.surf_b_vals)[jnp.arange(self.spheres.shape[1])]
+		#which is kept as it was; out-of-range indices take the last value, as a JAX gather does
+		self.p_dir_bvals = jnp.asarray(wt[np.minimum(np.arange(sph.shape[1]),wt.shape[0]-1)])
 
 	#What JAX traces (children) and what it treats as fixed (aux_data). Every array goes in children, so programs are
 	#compiled for array shapes, not values; aux_data holds only hashable settings that are the same for every protein
@@ -1073,7 +1024,7 @@ class MemBrain:
 		"memt_tails","memt_heads","memt_total","memt_tails_om","memt_heads_om","memt_total_om","charge_mult","charge_mult_om",
 		"numa","numb","cut_a","cut_b","nums","only_top","red_cpus","gamma_val","lr_pos","lr_heights","lr_cens",
 		"pg_charge","pg_thickness","sheet_charge")
-	_ARRAYS = ("p_surface_poses","p_spheres","p_bead_types","p_weights","p_dir_bvals",
+	_ARRAYS = ("p_surface_poses","p_spheres","p_bead_types","p_weights","p_dir_bvals","p_valid",
 		"W_B_mins","LH1_B_mins","LH2_B_mins","LH3_B_mins","LH4_B_mins","LT1_B_mins","LT2_B_mins","Charge_B_mins",
 		"mem_structure","mem_structure_im","mem_structure_om","lss_a","lss_b","pg_layer","pg_water")
 	_RESULTS = ("curva","result_grid","start_grid","minima","pg_poses","all_areas","re_rank_vals","re_rank_pots",
@@ -2052,13 +2003,21 @@ class MemBrain:
 	#Equivalent to get_hydro_core_v3_p1 for every starting direction: the neighbour hydrophobicity only depends on
 	#distances between beads, which rotation doesn't change, so the core is found once and then rotated
 	def get_starts(self,angs):
-		sposes = jnp.asarray(self.surface_poses)
-		hydro_val = jnp.array(self.W_B_mins)[jnp.array(jax.device_get(self.bead_types),dtype=int)]
-		in_r = jnp.linalg.norm(sposes[:,None,:]-sposes[None,:,:],axis=-1) < 20
-		nnh = jnp.sum(in_r*hydro_val[None,:],axis=1)/jnp.sum(in_r,axis=1)
-		cut = jnp.percentile(nnh,98)
-		core = jnp.mean(sposes[nnh>=cut],axis=0)
-		angs = jnp.asarray(angs)
+		return self.lean().get_starts_p(jnp.asarray(angs))
+
+	#On the padded surface: padding beads are left out of the neighbourhoods, the percentile and the core
+	@jax.jit
+	def get_starts_p(self,angs):
+		sposes = self.p_surface_poses
+		valid = self.p_valid
+		hydro_val = self.W_B_mins[self.p_bead_types]
+		def neighbour_hydro(p):
+			in_r = (jnp.linalg.norm(sposes-p,axis=-1) < 20)*valid
+			return jnp.sum(in_r*hydro_val)/jnp.sum(in_r)
+		nnh = jax.lax.map(neighbour_hydro,sposes,batch_size=256)
+		cut = jnp.nanpercentile(jnp.where(valid,nnh,jnp.nan),98)
+		in_core = (nnh>=cut)*valid
+		core = jnp.sum(jnp.where(in_core[:,None],sposes,0.0),axis=0)/jnp.sum(in_core)
 		start_zdirs = jax.vmap(lambda a: position_point_jit(0,a[1],a[0],jnp.array([[0.0,0.0,1.0]]))[0])(angs)
 		start_xydirs = jax.vmap(lambda a: position_point_jit(0,a[1],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2])(angs)
 		return jax.vmap(lambda zdir,xydir: position_pointv2(0,zdir,xydir,core[None])[0])(start_zdirs,start_xydirs)
@@ -2392,6 +2351,8 @@ class MemBrain:
 		
 		self.minima_ind = jnp.array(self.minima_ind)[nminima_ind] #TODO?
 		
+		if not getattr(self,"make_plots",True):
+			return
 		for i in range(self.no_mins):
 			inder = np.where(nminima_ind == i)
 			os.rename(orient_dir+"Rank_"+str(i+1)+"/Z_potential_curve.png",orient_dir+"Rank_"+str(i+1)+"/Z_potential_curve_"+str(inder[0][0]+1)+".png")
@@ -2711,7 +2672,10 @@ class MemBrain:
 		lean = self.lean()
 		pot_graph,zs,in_depth_ind = lean.z_pot_graph(150,150,start_zdir,start_xydir,in_depth,curv)
 
-		if not self.dbmem:
+		pot_graph = np.asarray(pot_graph)
+		in_depth_ind = int(in_depth_ind)
+		#The curves are only drawn when they are kept (not with -sl): drawing them takes longer than finding them
+		if not self.dbmem and getattr(self,"make_plots",True):
 			pots_cs,cs= lean.c_pot_plot(150,start_zdir,start_xydir,in_depth)
 			
 			
@@ -2723,20 +2687,21 @@ class MemBrain:
 			plt.savefig(rank_dir+"curv_potential_curve.png")
 			plt.clf()
 		
-		plt.plot(zs,pot_graph)
-		plt.ylabel("Potential energy")
-		plt.xlabel("Z")
-		plt.title("Potential energy against z position relative to centre of membrane")
-		plt.tight_layout()
-		plt.savefig(rank_dir+"Z_potential_curve.png")
-		plt.clf()
+		if getattr(self,"make_plots",True):
+			plt.plot(zs,pot_graph)
+			plt.ylabel("Potential energy")
+			plt.xlabel("Z")
+			plt.title("Potential energy against z position relative to centre of membrane")
+			plt.tight_layout()
+			plt.savefig(rank_dir+"Z_potential_curve.png")
+			plt.clf()
 		
 		if(in_depth_ind > 148):
 			in_depth_ind = 148
 		elif(in_depth_ind < 1):
 			in_depth_ind = 1
-		minn = jnp.max(pot_graph[:in_depth_ind])-pot_graph[in_depth_ind]
-		maxx = jnp.max(pot_graph[in_depth_ind:])-pot_graph[in_depth_ind]
+		minn = np.max(pot_graph[:in_depth_ind])-pot_graph[in_depth_ind]
+		maxx = np.max(pot_graph[in_depth_ind:])-pot_graph[in_depth_ind]
 		diss = min(minn,maxx)	
 		return diss,pot_graph[in_depth_ind]
 		
@@ -3188,8 +3153,7 @@ def potential_between_sheets(rdist,grid_size,extent,cc):
 	return tot_pot*cc
 	
 #A function for positioning a set of points
-@jax.jit
-def position_point_jit(in_depth,ang1,ang2,poses):
+def _position_point(in_depth,ang1,ang2,poses):
 	pos_num = poses.shape[0]
 	new_num = pad_num(poses)
 
@@ -3263,7 +3227,33 @@ def position_pointv2(in_depth,zdir,xydir,poses):
 	rotated_poses = rotated_poses.at[:,2].set(rotated_poses[:,2]-in_depth)
 	
 	return rotated_poses
-position_pointv2_jit = jax.jit(position_pointv2)
+_position_point_jit = jax.jit(_position_point)
+_position_pointv2_jit = jax.jit(position_pointv2)
+
+#Both rotations act on each row of poses separately. Called on concrete arrays (outside a traced function) the rows
+#are padded to pad_size, so the compiled program depends on the size step rather than on the exact number of beads
+#or atoms of the protein, and the result comes back through the host, so taking the rows back compiles nothing
+def _rows_padded(fn,in_depth,a,b,poses):
+	if any(isinstance(v,jax.core.Tracer) for v in (in_depth,a,b,poses)) or np.ndim(poses) != 2 or np.shape(poses)[0] <= 16:
+		return fn(in_depth,a,b,poses)
+	poses = np.asarray(poses)
+	n = poses.shape[0]
+	padded = np.zeros((pad_size(n),poses.shape[1]),dtype=poses.dtype)
+	padded[:n] = poses
+	#The same argument types every time (a Python 0 and a float32 angle would otherwise be separate programs)
+	in_depth,a,b = (jnp.asarray(np.asarray(v,dtype=poses.dtype)) for v in (in_depth,a,b))
+	return jnp.asarray(np.asarray(fn(in_depth,a,b,jnp.asarray(padded)))[:n])
+
+def position_point_jit(in_depth,ang1,ang2,poses):
+	return _rows_padded(_position_point_jit,in_depth,ang1,ang2,poses)
+
+def position_pointv2_jit(in_depth,zdir,xydir,poses):
+	return _rows_padded(_position_pointv2_jit,in_depth,zdir,xydir,poses)
+
+#Rotates every free direction of every surface bead (spheres, shape (beads, directions, 3)) in one call
+def rotate_spheres(in_depth,ang1,ang2,spheres):
+	shape = np.shape(spheres)
+	return position_point_jit(in_depth,ang1,ang2,jnp.reshape(jnp.asarray(spheres),(-1,3)) if isinstance(spheres,jax.core.Tracer) else np.reshape(np.asarray(spheres),(-1,3))).reshape(shape)
 
 #A function that returns an array of points on a sphere using a fibbonacci spiral lattice
 def create_sph_grid(bsize):
@@ -3559,6 +3549,58 @@ def pts_around(pointsA,points,rng):
 	hitpts,_=jax.lax.scan(a1fun,hitpts,jnp.arange(points.shape[0]))
 	return hitpts
 
+#Surface finding kernels (PDB_helper.get_surface), compiled once per size step of the padded beads
+def _fire_point(fpoint,direc,points,hit_points):
+	rad = 7
+	direc = direc/jnp.linalg.norm(direc)
+	@jax.vmap
+	def fp3_fun(ind):
+		pdir = points[ind]-fpoint
+		dist = jnp.abs(jnp.dot(pdir,direc))
+		side_dist = jnp.abs(jnp.power(jnp.linalg.norm(pdir),2)-dist*dist)
+		test_val1 = rad*rad-side_dist
+		distance = dist-jnp.sqrt(test_val1)
+		return distance
+	shard_nn = jax.lax.with_sharding_constraint(jnp.arange(points.shape[0]),sharding0)
+	disters = fp3_fun(shard_nn)
+	inder = jnp.nanargmin(disters)
+	hit_points = hit_points.at[inder].set(hit_points[inder]+1)
+	return hit_points
+
+@partial(jax.jit,static_argnums=0)
+def fire_n_points(nn,fpoints,direcs,points,hit_points):
+	nps = points.shape[0]
+	@jax.vmap
+	def fnp(ind):
+		ret_points = jax.lax.with_sharding_constraint(jnp.zeros(nps,dtype=hit_points.dtype),sharding0)
+		ret_points = _fire_point(fpoints[ind],direcs[ind],points,ret_points)
+		return ret_points
+	shard_nn = jax.lax.with_sharding_constraint(jnp.arange(nn),sharding0)
+	ret_points = fnp(shard_nn)
+	hit_points = hit_points.at[:,0].set( hit_points[:,0]+ jnp.sum(ret_points,axis=0))
+	return hit_points
+
+#The normal at a bead points away from the mean of all (real) beads within 32 A (beads processed in batches to bound memory)
+@jax.jit
+def surface_normals(poses,valid):
+	def normal_fun_2(ind):
+		near = (jnp.linalg.norm(poses-poses[ind],axis=1)<32)*valid
+		normal = jnp.sum(jnp.where(near[:,None],poses[ind]-poses,0.0),axis=0)/jnp.sum(near)
+		normal = normal/jnp.linalg.norm(normal)
+		return normal
+	return jax.lax.map(normal_fun_2,jnp.arange(poses.shape[0]),batch_size=256)
+
+#Flags the free directions of each surface bead: a direction is free if no bead lies within 4 A of the point 4 A
+#out along the normal plus that direction
+@jax.jit
+def free_directions(poses,normals,surface,ball):
+	def sphere_fun_3(ind):
+		test_points = poses[ind]+normals[ind]*4+ball
+		dists = jnp.linalg.norm(test_points[:,None,:]-poses[None,:,:],axis=2)
+		on_surf_ball = jnp.all(jnp.logical_not(dists<4),axis=1).astype(int)
+		return on_surf_ball*surface[ind]
+	return jax.lax.map(sphere_fun_3,jnp.arange(poses.shape[0]),batch_size=32)
+
 #Sizes the surface is padded to (MemBrain.set_padded_surface): steps of about 25% from 64 beads, in multiples of 16,
 #so a protein costs at most a quarter more than unpadded and one compiled program serves every protein in a step.
 #MEMPRO_PAD=0 turns padding off (each protein then compiles for its own size)
@@ -3853,12 +3895,84 @@ def main():
 	parser.set_defaults(rank="auto")
 	parser.add_argument("-seed","--seed",type=int,help="Seed for the random number generators, for reproducible runs. Results also depend on the number of devices (-nc) (Default: unseeded)")
 	parser.set_defaults(seed=None)
+	parser.add_argument("-batch","--batch",help="Orient many proteins in this one process (compiled programs are kept between them): a file with one protein per line, the input PDB and its working directory separated by a tab. Each protein runs as mempro -f <input> -o <directory>/Orient/ with the other options given, writing the screen output to <directory>/mempro.log and the exit code and seconds to <directory>/done.txt; proteins with a done.txt are skipped. Several processes can share one file: each protein is claimed by the first to reach it")
+	parser.set_defaults(batch=None)
 	args = parser.parse_args()
+
+	if args.batch is not None:
+		run_batch(args,sys.argv)
+		return
 
 	if args.file_name is None:
 		parser.print_help()
 		sys.exit(0)
 
+	run(args,sys.argv)
+
+#Runs -batch: every protein in the file not yet done (done.txt) or claimed by another process (claim.txt)
+def run_batch(args,argv):
+	import copy
+	import contextlib
+	import traceback
+	jobs = []
+	with open(args.batch) as fh:
+		for line in fh:
+			if line.strip():
+				fn,work = line.rstrip("\n").split("\t")[:2]
+				jobs.append((fn.strip(),work.strip()))
+	#The command line of each protein, as if it had been run on its own
+	base = []
+	skip = False
+	for a in argv[1:]:
+		if skip:
+			skip = False
+			continue
+		if a in ("-batch","--batch","-f","--file_name","-o","--output"):
+			skip = True
+			continue
+		if a.startswith("--batch=") or a.startswith("--file_name=") or a.startswith("--output="):
+			continue
+		base.append(a)
+	done_n = 0
+	start = time.time()
+	for fn,work in jobs:
+		os.makedirs(work,exist_ok=True)
+		if os.path.exists(os.path.join(work,"done.txt")):
+			continue
+		try:
+			fd = os.open(os.path.join(work,"claim.txt"),os.O_CREAT|os.O_EXCL|os.O_WRONLY)
+		except FileExistsError:
+			continue
+		os.write(fd,(str(os.getpid())+"\n").encode())
+		os.close(fd)
+		one = copy.copy(args)
+		one.batch = None
+		one.file_name = os.path.abspath(fn)
+		out_dir = os.path.join(os.path.abspath(work),"Orient")+"/"
+		one.output = out_dir
+		one_argv = [argv[0],"-f",one.file_name,"-o",out_dir]+base
+		timer = time.time()
+		rc = 0
+		with open(os.path.join(work,"mempro.log"),"w") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+			try:
+				run(one,one_argv)
+			except SystemExit as err:
+				rc = err.code if isinstance(err.code,int) else (0 if err.code is None else 1)
+			except Exception:
+				traceback.print_exc()
+				rc = 1
+			finally:
+				plt.close("all")
+		with open(os.path.join(work,"done.txt"),"w") as fh:
+			fh.write(str(rc)+"\t"+str(np.round(time.time()-timer,1))+"\n")
+		os.remove(os.path.join(work,"claim.txt"))
+		done_n += 1
+		print(os.path.basename(fn),"rc",rc,str(np.round(time.time()-timer,1))+" s",flush=True)
+	print("Batch: "+str(done_n)+" proteins in "+str(np.round(time.time()-start,1))+" s",flush=True)
+
+#Orients one protein (args from the command line; argv is the command line, written to the output)
+_added_residues = set()
+def run(args,argv):
 	#All random draws in MemPrO use NumPy's global generator
 	if args.seed is not None:
 		if not 0 <= args.seed < 2**32:
@@ -4045,7 +4159,7 @@ def main():
 			shutil.rmtree(orient_dir)
 		os.mkdir(orient_dir)
 		build_system = min(build_system,1)
-		if(not any(a in ("-topo","--topology") for a in sys.argv)):
+		if(not any(a in ("-topo","--topology") for a in argv)):
 			topology_ranks = 0
 		topology_ranks = min(topology_ranks,1)
 
@@ -4053,6 +4167,10 @@ def main():
 	if(len(add_reses) > 0):
 		if(len(add_reses[0]) > 0):
 			for i in add_reses:
+				#Once per process (-batch runs many proteins)
+				if i in _added_residues:
+					continue
+				_added_residues.add(i)
 				add_Reses(i,args.additional_residues_itp_file)
 				if len(args.residue_cg_file) > 0:
 					add_AtomToBeads(args.residue_cg_file.lstrip("/")+"/"+i+".pdb")
@@ -4091,6 +4209,8 @@ def main():
 
 	#Creating MemBrain class
 	Mem_test = MemBrain(data,int_data,args.peripheral,0,args.predict_pg_layer,mem_data,args.curvature,args.dual_membrane,args.write_bfactors,ranker)
+	#-sl keeps no graphs, so they are not drawn
+	Mem_test.make_plots = not args.streamlined
 
 	#Setting up a spherical grid for local minima calculations
 	angs = create_sph_grid(grid_size)
@@ -4142,7 +4262,7 @@ def main():
 		print("Done")
 
 	print("Writing data...")
-	Mem_test.write_oriented(fn,orient_dir," ".join(sys.argv),fliper,args.sidedness)
+	Mem_test.write_oriented(fn,orient_dir," ".join(argv),fliper,args.sidedness)
 	print("Done")
 
 	if(build_system > 0):
