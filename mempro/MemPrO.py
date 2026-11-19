@@ -1041,45 +1041,65 @@ class MemBrain:
 		self.re_rank_vals = 0
 		self.re_rank_pots = 0
 		self.re_rank_disses = 0
-	
-	#We need the following two methods to tell jax what is and what is not static
+		self.new_memt_im = 0
+		self.new_memt_om = 0
+
+		self.set_padded_surface()
+
+	#The energy is evaluated on copies of the surface arrays padded to one of a few fixed sizes (pad_size), so the
+	#compiled programs depend only on that size and are reused across proteins (from the persistent cache, or in
+	#memory with -batch). A padding bead is a copy of the last surface bead with zero weight and no free directions,
+	#so it adds exactly nothing to the potential or its gradient and leaves the extent of the protein unchanged.
+	#The unpadded arrays (surface_poses, spheres, bead_types, surf_b_vals) are kept for everything outside the energy.
+	def set_padded_surface(self):
+		n = int(self.surface_poses.shape[0])
+		size = pad_size(n)
+		self.n_surf = n
+		print("Surface beads:",n,"(padded to "+str(size)+")")
+		fill =np.concatenate([np.arange(n),np.full(size-n,n-1)]).astype(int)
+		self.p_surface_poses = jnp.asarray(self.surface_poses)[fill]
+		self.p_bead_types = jnp.asarray(self.bead_types)[np.minimum(fill,self.bead_types.shape[0]-1)]
+		self.p_spheres = jnp.zeros((size,)+tuple(self.spheres.shape[1:]),dtype=self.spheres.dtype).at[:self.spheres.shape[0]].set(self.spheres)
+		self.p_weights = jnp.zeros(size,dtype=self.surf_b_vals.dtype).at[:self.surf_b_vals.shape[0]].set(self.surf_b_vals)
+		#calc_pot_at_z_jit weights each free direction of a bead by surf_b_vals indexed by direction (not by bead),
+		#which is kept as it was; it is worked out here on the unpadded array so out-of-range indices behave the same
+		self.p_dir_bvals = jnp.asarray(self.surf_b_vals)[jnp.arange(self.spheres.shape[1])]
+
+	#What JAX traces (children) and what it treats as fixed (aux_data). Every array goes in children, so programs are
+	#compiled for array shapes, not values; aux_data holds only hashable settings that are the same for every protein
+	#run with the same options, so traced programs are also reused in memory. Results of a run (minima etc.) are
+	#children too but vary in size, so the hot programs are called through lean(), which leaves them out.
+	_STATIC = ("peri","force_calc","pg_layer_pred","gcurv","dbmem","write_bfac","rank_sort","build_no",
+		"memt_tails","memt_heads","memt_total","memt_tails_om","memt_heads_om","memt_total_om","charge_mult","charge_mult_om",
+		"numa","numb","cut_a","cut_b","nums","only_top","red_cpus","gamma_val","lr_pos","lr_heights","lr_cens",
+		"pg_charge","pg_thickness","sheet_charge")
+	_ARRAYS = ("p_surface_poses","p_spheres","p_bead_types","p_weights","p_dir_bvals",
+		"W_B_mins","LH1_B_mins","LH2_B_mins","LH3_B_mins","LH4_B_mins","LT1_B_mins","LT2_B_mins","Charge_B_mins",
+		"mem_structure","mem_structure_im","mem_structure_om","lss_a","lss_b","pg_layer","pg_water")
+	_RESULTS = ("curva","result_grid","start_grid","minima","pg_poses","all_areas","re_rank_vals","re_rank_pots",
+		"re_rank_disses","new_memt_im","new_memt_om")
+
 	def _tree_flatten(self):
-		children = (self.mem_structure,self.result_grid,self.curva,self.mem_structure_im,self.mem_structure_om,self.minima,self.pg_poses,self.minima,self.all_areas,self.re_rank_vals,self.re_rank_pots,self.re_rank_disses,self.start_grid)
-		aux_data = {"int_data":self.int_data,"Data":self.data,"Poses":self.poses,"Bead_types":self.bead_types,"All_Poses":self.all_poses,
-		"B_vals":self.b_vals,"Surface_poses":self.surface_poses,"Sphere_poses":self.spheres,
-			"Surface":self.surface,"Surface_b_vals":self.surf_b_vals,
-			"WBmins":self.W_B_mins,"LH1B_mins":self.LH1_B_mins,"LH2B_mins":self.LH2_B_mins,
-			"LH3B_mins":self.LH3_B_mins,"LH4B_mins":self.LH4_B_mins,"LT1B_mins":self.LT1_B_mins,
-			"LT2B_mins":self.LT2_B_mins,"ChargeBmins":self.Charge_B_mins,"Peri":self.peri,"numa":self.numa,
-			"numb":self.numb,"cuta":self.cut_a,"cutb":self.cut_b,"Nums":self.nums,"top_min":self.only_top,
-			"red_cpus":self.red_cpus,"lssa":self.lss_a,"lssb":self.lss_b,"no_mins":self.no_mins,"force_calc":self.force_calc,"pg_layer":self.pg_layer_pred,
-			"mem_Data":self.mem_data,"memop":self.gcurv,"cm":self.charge_mult,"cmo":self.charge_mult_om,"dbmem":self.dbmem,"write_b":self.write_bfac,"rsort":self.rank_sort}
+		children = tuple(getattr(self,k) for k in self._ARRAYS+self._RESULTS)
+		aux_data = tuple(_hashable(getattr(self,k)) for k in self._STATIC)
 		return (children,aux_data)
-	
+
 	@classmethod
 	def _tree_unflatten(cls,aux_data,children):
-		obj = cls(aux_data["Data"],aux_data["int_data"],aux_data["Peri"],aux_data["force_calc"],aux_data["pg_layer"],aux_data["mem_Data"],aux_data["memop"],aux_data["dbmem"],aux_data["write_b"],aux_data["rsort"])
-		obj.mem_structure = children[0]
-		obj.mem_structure_im = children[3]
-		obj.mem_structure_om = children[4]
-		obj.no_mins = aux_data["no_mins"]
-		obj.result_grid = children[1]
-		obj.numa = aux_data["numa"]
-		obj.numb = aux_data["numb"]
-		obj.cut_a = aux_data["cuta"]
-		obj.cut_b = aux_data["cutb"]
-		obj.curva = children[2]
-		obj.lss_a = aux_data["lssa"]
-		obj.lss_b = aux_data["lssb"]
-		obj.charge_mult = aux_data["cm"]
-		obj.charge_mult_om = aux_data["cmo"]
-		obj.minima = children[5]
-		obj.pg_poses = children[6]
-		obj.all_areas = children[7]
-		obj.re_rank_vals = children[8]
-		obj.re_rank_pots = children[9]
-		obj.re_rank_disses = children[10]
-		obj.start_grid = children[11]
+		obj = object.__new__(cls)
+		for k,v in zip(cls._STATIC,aux_data):
+			setattr(obj,k,v)
+		for k,v in zip(cls._ARRAYS+cls._RESULTS,children):
+			setattr(obj,k,v)
+		return obj
+
+	#A copy without the results of the run, for the programs that do not need them (minimise_p, z_pot_graph,
+	#c_pot_plot), so their inputs do not change with the number of minima found
+	def lean(self):
+		obj = object.__new__(type(self))
+		obj.__dict__.update(self.__dict__)
+		for k in self._RESULTS:
+			setattr(obj,k,None)
 		return obj
 
 
@@ -1166,7 +1186,7 @@ class MemBrain:
 		plmi = jnp.sign(curv)
 		smoothness = 2
 		#NOTE: indexed by direction, as in the original scan (self.surf_b_vals[ind] with ind over ball)
-		b_vals = self.surf_b_vals[jnp.arange(ball.shape[0])]
+		b_vals = self.p_dir_bvals[:ball.shape[0]]
 		circ_pos = ball+z
 		dmsj_v = jax.vmap(self.dmsj,in_axes=(0,None,None,None,None,None))
 		def zero_curv():
@@ -1415,8 +1435,9 @@ class MemBrain:
 		plmi = jnp.sign(curv)
 		ang1 /= jnp.linalg.norm(ang1)
 		zdist = jnp.abs(zdist_temp*jnp.dot(ang1,jnp.array([0.0,0.0,1.0])))
-		tester_poses = position_pointv2_jit(in_depth,ang1,ang2,self.surface_poses)
-		test_spheres = jax.vmap(position_pointv2_jit,in_axes=(None,None,None,0))(0,ang1,ang2,self.spheres)
+		#On the padded surface (set_padded_surface): padding beads have zero weight, so they contribute nothing
+		tester_poses = position_pointv2_jit(in_depth,ang1,ang2,self.p_surface_poses)
+		test_spheres = jax.vmap(position_pointv2_jit,in_axes=(None,None,None,0))(0,ang1,ang2,self.p_spheres)
 		charge_v = jax.vmap(self.new_charge,in_axes=(0,None,None,0,None,None,None))
 		def zero_curv():
 			cenz1 = 1e6
@@ -1425,16 +1446,16 @@ class MemBrain:
 			cen2 = jnp.array([0.0,0.0,cenz2])
 			zpos1 = -(jnp.linalg.norm(tester_poses-cen1,axis=1)-jnp.abs(cenz1))
 			zpos2 = jnp.linalg.norm(tester_poses-cen2,axis=1)-jnp.abs(cenz2)
-			tot_pot1 = self.surf_b_vals*charge_v(zpos1,zdist,-1e-6,self.bead_types,mem_structure_im,mem_structure_om,c_scal)
-			tot_pot2 = self.surf_b_vals*charge_v(zpos2,zdist,1e-6,self.bead_types,mem_structure_im,mem_structure_om,c_scal)
+			tot_pot1 = self.p_weights*charge_v(zpos1,zdist,-1e-6,self.p_bead_types,mem_structure_im,mem_structure_om,c_scal)
+			tot_pot2 = self.p_weights*charge_v(zpos2,zdist,1e-6,self.p_bead_types,mem_structure_im,mem_structure_om,c_scal)
 			return ((tot_pot2-tot_pot1)/2e-6)*curv+(tot_pot1+tot_pot2)/2
 		def nzero_curv():
 			cenz = -1.0/(curv+plmi*1e-9)
 			cen = jnp.array([0.0,0.0,cenz])
 			zpos = jnp.sign(curv)*(jnp.linalg.norm(tester_poses-cen,axis=1)-jnp.abs(cenz))
-			return self.surf_b_vals*charge_v(zpos,zdist,curv,self.bead_types,mem_structure_im,mem_structure_om,c_scal)
+			return self.p_weights*charge_v(zpos,zdist,curv,self.p_bead_types,mem_structure_im,mem_structure_om,c_scal)
 		charge_pot = jax.lax.cond(jnp.abs(curv) < 1e-6,zero_curv,nzero_curv)
-		mem_pot = self.surf_b_vals*jax.vmap(self.calc_pot_at_z_jit,in_axes=(0,None,0,0,None,None,None))(tester_poses,zdist,test_spheres,self.bead_types,curv,mem_structure_im,mem_structure_om)
+		mem_pot = self.p_weights*jax.vmap(self.calc_pot_at_z_jit,in_axes=(0,None,0,0,None,None,None))(tester_poses,zdist,test_spheres,self.p_bead_types,curv,mem_structure_im,mem_structure_om)
 		return charge_pot+mem_pot
 		
 	#A function that calculates if a protein is fully ejected from the membrane
@@ -1468,15 +1489,15 @@ class MemBrain:
 		ang2 = position[5:7]
 		ang1 /= jnp.linalg.norm(ang1)
 		zdist = jnp.abs(zdist_temp*jnp.dot(ang1,jnp.array([0.0,0.0,1.0])))
-		tester_poses = position_pointv2_jit(in_depth,ang1,ang2,self.surface_poses)
+		tester_poses = position_pointv2_jit(in_depth,ang1,ang2,self.p_surface_poses)
 		def rot_spheres(carry,ind):
-			new_spheres = position_pointv2_jit(0,ang1,ang2,self.spheres[ind])
+			new_spheres = position_pointv2_jit(0,ang1,ang2,self.p_spheres[ind])
 			return carry,new_spheres
-		_,test_spheres = jax.lax.scan(rot_spheres,0,jnp.arange(self.spheres.shape[0]))
+		_,test_spheres = jax.lax.scan(rot_spheres,0,jnp.arange(self.p_spheres.shape[0]))
 		tot_pot = 0
 		def calc_pot_fun_1(tot_pot,ind):
-			tot_pot += self.surf_b_vals[ind]*self.pg_pot_at_z(tester_poses[ind,2]+pg_z,test_spheres[ind],self.bead_types[ind])
-			tot_pot += self.surf_b_vals[ind]*self.pg_charge_fun(tester_poses[ind,2]+pg_z,self.bead_types[ind])
+			tot_pot += self.p_weights[ind]*self.pg_pot_at_z(tester_poses[ind,2]+pg_z,test_spheres[ind],self.p_bead_types[ind])
+			tot_pot += self.p_weights[ind]*self.pg_charge_fun(tester_poses[ind,2]+pg_z,self.p_bead_types[ind])
 			return tot_pot,ind
 		tot_pot,_ = jax.lax.scan(calc_pot_fun_1,tot_pot,jnp.arange(tester_poses.shape[0]))
 		tot_pot += potential_between_sheets(zdist-pg_z+mem_structure_om[0]-self.pg_thickness/2,10,20,-self.sheet_charge*charge_const)+potential_between_sheets(zdist+pg_z+mem_structure_im[0]-self.pg_thickness/2,10,20,-self.sheet_charge*charge_const)
@@ -1654,7 +1675,8 @@ class MemBrain:
 		ang2 = position[5:7]
 		ang1 /= jnp.linalg.norm(ang1)
 		zdist = jnp.abs(zdist_temp*jnp.dot(ang1,jnp.array([0.0,0.0,1.0])))
-		tester_poses = position_pointv2_jit(in_depth,ang1,ang2,self.surface_poses)
+		#Padding beads are copies of a real bead, so the extent is the same as for the unpadded surface
+		tester_poses = position_pointv2_jit(in_depth,ang1,ang2,self.p_surface_poses)
 		return jnp.min(tester_poses[:,0]),jnp.max(tester_poses[:,0]),jnp.min(tester_poses[:,1]),jnp.max(tester_poses[:,1]),jnp.min(tester_poses[:,2]),jnp.max(tester_poses[:,2])
 
 	#A function to finds the minimal insertion depth (within range) via grid search
@@ -2041,37 +2063,37 @@ class MemBrain:
 		start_xydirs = jax.vmap(lambda a: position_point_jit(0,a[1],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2])(angs)
 		return jax.vmap(lambda zdir,xydir: position_pointv2(0,zdir,xydir,core[None])[0])(start_zdirs,start_xydirs)
 		
-	#A function that minimises on a set of different starting positions. This is important as there can be local minima
-	def minimise_on_grid(self,grid_size,start_z,zdist,angs,max_iter):
+	#The starting configurations: one per direction in angs, at the insertion depth from start_z (or, for peripheral
+	#proteins, the best depth from a scan). Jitted with the protein as an input so it compiles once per padded size;
+	#peri and dbmem are fixed settings, so the branch not taken is not traced
+	@partial(jax.jit,static_argnums=1)
+	def start_configurations(self,grid_size,start_z,zdist,angs):
 		pos_grid = jnp.zeros((grid_size,9))
 		def min_plot_fun_1(pos_grid,ind):
 			start_zdir = position_point_jit(0,angs[ind][1],angs[ind][0],jnp.array([[0.0,0.0,1.0]]))[0]
 			start_xydir =  position_point_jit(0,angs[ind][1],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2]
-			
 			#Using a different starting insertion depth for peripheral proteins
-			def is_peri():
+			if self.peri:
 				new_start_z = self.z_pot_no_range(100,start_zdir,start_xydir)
-				
-				return new_start_z
-			def is_not_peri():
-				def isdm():
-					new_start_z = position_point_jit(0,angs[ind][1],angs[ind][0],jnp.array([start_z[0]]))[0,2]
-					return new_start_z
-				def isndm():
-					new_start_z = start_z[ind,2]
-					return new_start_z
-				new_start_z = jax.lax.cond(self.dbmem,isdm,isndm)
-				return new_start_z
-			new_start_z = jax.lax.cond(self.peri,is_peri,is_not_peri)
+			elif self.dbmem:
+				new_start_z = position_point_jit(0,angs[ind][1],angs[ind][0],jnp.array([start_z[0]]))[0,2]
+			else:
+				new_start_z = start_z[ind,2]
 			pos = jnp.concatenate([jnp.array([zdist,new_start_z]),start_zdir,start_xydir,jnp.zeros(1),jnp.zeros(1)])
 			pos_grid = pos_grid.at[ind].set(pos)
 			return pos_grid,ind
-			
+		pos_grid,_ = jax.lax.scan(min_plot_fun_1,pos_grid,jnp.arange(grid_size))
+		return pos_grid
+
+	#A function that minimises on a set of different starting positions. This is important as there can be local minima
+	def minimise_on_grid(self,grid_size,start_z,zdist,angs,max_iter):
+		lean = self.lean()
+		
 		#One configuration per CPU device per batch, or every configuration in a single batch on GPU
 		batch_size = no_cpu*int(np.ceil(grid_size/no_cpu)) if use_gpu else no_cpu
 		no_runs = int(np.ceil(grid_size/batch_size))
 		
-		pos_grid,_ = jax.lax.scan(min_plot_fun_1,pos_grid,jnp.arange(grid_size))
+		pos_grid = lean.start_configurations(grid_size,jnp.asarray(start_z),jnp.asarray(zdist,dtype=jnp.asarray(angs).dtype),jnp.asarray(angs))
 		self.start_grid = pos_grid.copy()
 		no_grid = pos_grid.shape[0]
 		pos_grid =jnp.pad(pos_grid,((0,no_runs*batch_size - no_grid),(0,0)),mode="edge")
@@ -2085,7 +2107,7 @@ class MemBrain:
 		for i in range(no_runs):
 			timers = time.time()
 			print("Starting batch",str(i+1)+"/"+str(no_runs))
-			result_grid = result_grid.at[i::no_runs].set(self.minimise_p(pos_grid[i::no_runs],max_iter))
+			result_grid = result_grid.at[i::no_runs].set(lean.minimise_p(pos_grid[i::no_runs],max_iter))
 			times_taken = times_taken.at[i].set((time.time()-timers))
 			if(i > 5):
 				time_rem = jnp.array((no_runs-(i+1))*jnp.mean(times_taken[i-5:i+1]),dtype=int)
@@ -2546,7 +2568,7 @@ class MemBrain:
 		meml = -l_w/2.0 -h1_w -h2_w-h3_w
 		mem_structure_om = jnp.array([meml,meml+h1_w,meml+h2_w+h1_w,meml+h2_w+h1_w+h3_w,meml+h2_w+h1_w+h3_w+l_w,meml+h2_w+h1_w+2*h3_w+l_w,meml+2*h2_w+h1_w+2*h3_w+l_w,meml+2*h2_w+2*h1_w+2*h3_w+l_w])
 		
-		return self.calc_pot_per_bead(position,mem_structure_im,mem_structure_om)
+		return self.calc_pot_per_bead(position,mem_structure_im,mem_structure_om)[:self.n_surf]
 	
 	
 	#Calculates the area of a convex hull
@@ -2686,10 +2708,11 @@ class MemBrain:
 		start_zdir = position_point_jit(0,min_poses[min_ind][2],min_poses[min_ind][3],jnp.array([[0.0,0.0,1.0]]))[0]
 		start_xydir =  position_point_jit(0,min_poses[min_ind][2],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2]	
 		in_depth = min_poses[min_ind][1]
-		pot_graph,zs,in_depth_ind = self.z_pot_graph(150,150,start_zdir,start_xydir,in_depth,curv)
+		lean = self.lean()
+		pot_graph,zs,in_depth_ind = lean.z_pot_graph(150,150,start_zdir,start_xydir,in_depth,curv)
 
 		if not self.dbmem:
-			pots_cs,cs= self.c_pot_plot(150,start_zdir,start_xydir,in_depth)
+			pots_cs,cs= lean.c_pot_plot(150,start_zdir,start_xydir,in_depth)
 			
 			
 			plt.plot(cs/10,pots_cs)
@@ -3535,6 +3558,27 @@ def pts_around(pointsA,points,rng):
 		return hitpts,ind
 	hitpts,_=jax.lax.scan(a1fun,hitpts,jnp.arange(points.shape[0]))
 	return hitpts
+
+#Sizes the surface is padded to (MemBrain.set_padded_surface): steps of about 25% from 64 beads, in multiples of 16,
+#so a protein costs at most a quarter more than unpadded and one compiled program serves every protein in a step.
+#MEMPRO_PAD=0 turns padding off (each protein then compiles for its own size)
+def pad_size(n):
+	if os.environ.get("MEMPRO_PAD","1") in ["","0"]:
+		return n
+	size = 64
+	while size < n:
+		size = int(np.ceil(size*1.25/16))*16
+	return size
+
+#Settings in a pytree's aux_data must hash and compare by value
+def _hashable(v):
+	if isinstance(v,(bool,int,float,str,type(None))):
+		return v
+	if isinstance(v,(np.generic,)) or (hasattr(v,"shape") and np.ndim(v) == 0):
+		return np.asarray(v).item()
+	if isinstance(v,(list,tuple)):
+		return tuple(_hashable(x) for x in v)
+	raise TypeError("MemBrain setting is not hashable: "+repr(type(v)))
 
 def pad_num(arrays):
 	pos_num = arrays.shape[0]
