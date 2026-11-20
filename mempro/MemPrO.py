@@ -3953,14 +3953,18 @@ def run_batch(args,argv):
 		one_argv = [argv[0],"-f",one.file_name,"-o",out_dir]+base
 		timer = time.time()
 		rc = 0
+		poisoned = False
 		with open(os.path.join(work,"mempro.log"),"w") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
 			try:
 				run(one,one_argv)
 			except SystemExit as err:
 				rc = err.code if isinstance(err.code,int) else (0 if err.code is None else 1)
-			except Exception:
+			except Exception as err:
 				traceback.print_exc()
 				rc = 1
+				#A JAX/XLA runtime error (e.g. GPU out of memory) can leave the process's device state broken, so that
+				#every later protein fails at once ("Recorded commands are not empty"): stop and let a new process go on
+				poisoned = type(err).__name__ in ("JaxRuntimeError","XlaRuntimeError")
 			finally:
 				plt.close("all")
 		with open(os.path.join(work,"done.txt"),"w") as fh:
@@ -3968,6 +3972,10 @@ def run_batch(args,argv):
 		os.remove(os.path.join(work,"claim.txt"))
 		done_n += 1
 		print(os.path.basename(fn),"rc",rc,str(np.round(time.time()-timer,1))+" s",flush=True)
+		if poisoned:
+			print("Batch: JAX runtime error, exiting so a new process takes over",flush=True)
+			sys.stdout.flush()
+			os._exit(3)
 	print("Batch: "+str(done_n)+" proteins in "+str(np.round(time.time()-start,1))+" s",flush=True)
 
 #Orients one protein (args from the command line; argv is the command line, written to the output)
