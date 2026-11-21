@@ -2373,7 +2373,7 @@ class MemBrain:
 		min_hits = 100*min_hits/(np.sum(min_hits))
 		min_pots = mins[no_mins*2:no_mins*3,0]
 		min_zdist = jnp.abs(mins[no_mins*3:,0])
-		min_curvs = mins[no_mins*4:0,0]
+		min_curvs = mins[no_mins*4:,0]
 		numa = self.numa
 		numb = self.numb
 		
