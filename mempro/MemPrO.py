@@ -2744,10 +2744,10 @@ class MemBrain:
 			posi = posi.at[2:5].set(start_zdir)
 			posi = posi.at[5:7].set(start_xydir)
 			x_min,x_max,y_min,y_max,z_min,z_max = self.get_extent(posi)
-			#Box: the protein's extent plus padding on each side, 3 nm of lipid (x/y) and 2.5 nm of water (z) for a flat
+			#Box: the protein's extent plus padding on each side, 2 nm of lipid (x/y) and 2 nm of water (z) for a flat
 			#membrane; a curved one (-c) keeps 4 nm and 5 nm, as its edges rise and fall away from the protein.
 			#-x/-y/-z or -box in -bd_args are used as they are, and only the dimensions not given are set here
-			pad_xy,pad_z = (40,50) if self.gcurv else (30,25)
+			pad_xy,pad_z = (40,50) if self.gcurv else (20,20)
 			box_str = ""
 			if(not re.search(r"(^|\s)-box(\s|$)",build_args)):
 				for dim,length in (("x",(2*pad_xy+x_max-x_min)/10.0),("y",(2*pad_xy+y_max-y_min)/10.0),("z",(2*pad_z+z_max-z_min)/10.0)):
@@ -3872,7 +3872,7 @@ def main():
 	parser.set_defaults(insane_path=PATH_TO_INSANE or _default_insane)
 	parser.add_argument("-bd","--build_system",help = "Build a MD ready CG-system for ranks < n (Default: n=0)")
 	parser.set_defaults(build_system=0)
-	parser.add_argument("-bd_args","--build_arguments",help="Arguments to pass to insane when building system. The box is sized automatically: the extent of the protein plus 3 nm (x/y) and 2.5 nm (z) on each side for a flat membrane, or 4 nm and 5 nm with -c. Give -x, -y and/or -z (nm) or -box here to set it yourself; any dimension not given is still sized automatically.")
+	parser.add_argument("-bd_args","--build_arguments",help="Arguments to pass to insane when building system. The box is sized automatically: the extent of the protein plus 2 nm (x, y and z) on each side for a flat membrane, or 4 nm and 5 nm with -c. Give -x, -y and/or -z (nm) or -box here to set it yourself; any dimension not given is still sized automatically.")
 	parser.set_defaults(build_arguments="")
 	parser.add_argument("-sl","--streamlined",action="store_true",help="Write only the best orientation, as one file of coordinates: oriented.pdb in the output directory (the protein and the dummy membrane, with the membrane thickness and the other information of rank 1 as REMARK lines). No ranks, graphs or topology (-topo n adds Topology/); with -bd the system of the best orientation is built in CG_System/")
 	parser.add_argument("-topo","--topology",help="Write the topology (arrow diagram of each chain, transmembrane helices and strands) for ranks < n; atomistic input only (Default: n=1)")
