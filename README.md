@@ -166,7 +166,7 @@ Tested on 22 proteins used to develop the rules (OmpA, OmpF, OmpLA, FhuA, FadL, 
 
 **-topo, --topology** — Number of final ranked configurations to write the topology of (`Rank_{n}/Topology/`, see [Topology diagrams](#topology-diagrams)). Default is 1; 0 writes none. Atomistic input files only, as the secondary structure is needed; takes a few seconds per rank.
 
-**-bd_args, --build_arguments** — Arguments to pass to Insane4MemPrO, primarily lipid composition, solvent type etc. Required when using `-bd`.
+**-bd_args, --build_arguments** — Arguments to pass to Insane4MemPrO, primarily lipid composition, solvent type etc. Required when using `-bd`. The box is sized automatically: the extent of the protein plus 2 nm (x, y and z) on each side for a flat membrane, or 4 nm and 5 nm with `-c`. Give `-x`, `-y` and/or `-z` (nm) or `-box` here to set it yourself; any dimension not given is still sized automatically.
 
 **-res, --additional_residues** — Comma-separated list of additional residues present in the input file (e.g. `POPE,POPG`).
 
