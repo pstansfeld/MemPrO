@@ -2744,15 +2744,21 @@ class MemBrain:
 			posi = posi.at[2:5].set(start_zdir)
 			posi = posi.at[5:7].set(start_xydir)
 			x_min,x_max,y_min,y_max,z_min,z_max = self.get_extent(posi)
-			x_range = (80+x_max-x_min)/10.0
-			y_range = (80+y_max-y_min)/10.0
-			z_range = (100+z_max-z_min)/10.0
+			#Box: the protein's extent plus padding on each side, 3 nm of lipid (x/y) and 2.5 nm of water (z) for a flat
+			#membrane; a curved one (-c) keeps 4 nm and 5 nm, as its edges rise and fall away from the protein.
+			#-x/-y/-z or -box in -bd_args are used as they are, and only the dimensions not given are set here
+			pad_xy,pad_z = (40,50) if self.gcurv else (30,25)
+			box_str = ""
+			if(not re.search(r"(^|\s)-box(\s|$)",build_args)):
+				for dim,length in (("x",(2*pad_xy+x_max-x_min)/10.0),("y",(2*pad_xy+y_max-y_min)/10.0),("z",(2*pad_z+z_max-z_min)/10.0)):
+					if(not re.search(r"(^|\s)-"+dim+r"(\s|$)",build_args)):
+						box_str += " -"+dim+" "+str(round(float(length),3))
 			rank_flip = self.rank_flips[i] if i < len(self.rank_flips) else self.flip
 			#Turning the protein over turns the membrane's curvature over with it
 			curv_str = " -curv "+str(10*np.abs(min_curvs[i]))+",0.1,"+str(rank_flip*np.sign(min_curvs[i]-1e-9))
 			print("Building rank "+str(i+1)+" with Insane4MemPrO:")
 			cg_sys_dir = rank_dir+"CG_System_rank_"+str(i+1)+"/"
-			run_str = shlex.quote(sys.executable)+" "+shlex.quote(insane_path)+" "+build_args.strip()+" -o "+shlex.quote(cg_sys_dir+"CG-system.gro")+" -p "+shlex.quote(cg_sys_dir+"topol.top")+" -f "+shlex.quote(cg_sys_dir+"protein-cg.pdb")+" -x "+str(x_range)+" -y "+str(y_range)+" -z "+str(z_range)+curv_str
+			run_str = shlex.quote(sys.executable)+" "+shlex.quote(insane_path)+" "+build_args.strip()+" -o "+shlex.quote(cg_sys_dir+"CG-system.gro")+" -p "+shlex.quote(cg_sys_dir+"topol.top")+" -f "+shlex.quote(cg_sys_dir+"protein-cg.pdb")+box_str+curv_str
 			if(zdist > 1e-6):
 				run_str += " -ps "+str(zdist)
 			#Thickness between phosphate planes (nm) for Insane4MemPrO -footprint map: MemPrO's thickness is the
@@ -3866,7 +3872,7 @@ def main():
 	parser.set_defaults(insane_path=PATH_TO_INSANE or _default_insane)
 	parser.add_argument("-bd","--build_system",help = "Build a MD ready CG-system for ranks < n (Default: n=0)")
 	parser.set_defaults(build_system=0)
-	parser.add_argument("-bd_args","--build_arguments",help="Arguments to pass to insane when building system")
+	parser.add_argument("-bd_args","--build_arguments",help="Arguments to pass to insane when building system. The box is sized automatically: the extent of the protein plus 3 nm (x/y) and 2.5 nm (z) on each side for a flat membrane, or 4 nm and 5 nm with -c. Give -x, -y and/or -z (nm) or -box here to set it yourself; any dimension not given is still sized automatically.")
 	parser.set_defaults(build_arguments="")
 	parser.add_argument("-sl","--streamlined",action="store_true",help="Write only the best orientation, as one file of coordinates: oriented.pdb in the output directory (the protein and the dummy membrane, with the membrane thickness and the other information of rank 1 as REMARK lines). No ranks, graphs or topology (-topo n adds Topology/); with -bd the system of the best orientation is built in CG_System/")
 	parser.add_argument("-topo","--topology",help="Write the topology (arrow diagram of each chain, transmembrane helices and strands) for ranks < n; atomistic input only (Default: n=1)")
