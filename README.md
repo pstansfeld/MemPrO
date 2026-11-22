@@ -174,6 +174,8 @@ Tested on 22 proteins used to develop the rules (OmpA, OmpF, OmpLA, FhuA, FadL, 
 
 **-res_cg, --residue_cg_file** — A folder containing files named `RES.pdb` for each additional residue, providing coarse graining information. Examples can be found in the [CG2AT repository](https://github.com/owenvickery/cg2at/tree/master/database/fragments/martini_3-0_slipids/non_protein). Only required for atomistic inputs with additional residues.
 
+**-batch, --batch** — Orient many proteins in one process, so JAX compiles its programs once and reuses them instead of compiling for every protein (the energy is compiled once per padded surface size, so proteins of similar size share programs). Takes a file with one protein per line: the input PDB and a working directory, separated by a tab. Each protein is run as `mempro -f <input> -o <directory>/Orient/` with the other flags given, writing its screen output to `<directory>/mempro.log` and its exit code and run time to `<directory>/done.txt`. Proteins that already have a `done.txt` are skipped, so a stopped batch can be restarted. Several processes can work through the same file (for example several per GPU): each protein is claimed by the first process to reach it. A protein that fails is recorded in its `done.txt` and the batch moves on (delete its `done.txt` to run it again); after a JAX runtime error (such as running out of GPU memory) the process exits, as later proteins would fail too, and a new process carries on from the next protein.
+
 ## Examples
 
 The examples below use `python PATH/TO/MemPrO.py`; if installed via pip, replace this with `mempro`.
