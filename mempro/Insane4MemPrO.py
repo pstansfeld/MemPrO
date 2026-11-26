@@ -5009,8 +5009,12 @@ if lipL:
 					#+leaflet*(0.5+(i-min(az)))*options["-bd"].value
 					
 					xx	   = list(zip( ax,ay ))
-					nx	   = [rcos*i-rsin*j+pos[0]+random.random()*kick for i,j in xx]
-					ny	   = [rsin*i+rcos*j+pos[1]+random.random()*kick for i,j in xx]
+					# KLA x/y are stored in 0.25 nm units and require a reduced lateral footprint
+					# to pack at the declared 1.67 nm^2 area per lipid (z retains 0.3 nm units).
+					lateral_scale = 0.5 if lipidsa[lipid][0] == "LPS" else 1.0
+					lipid_kick = 0.0 if lipidsa[lipid][0] == "LPS" else kick
+					nx	   = [rcos*(lateral_scale*i)-rsin*(lateral_scale*j)+pos[0]+random.random()*lipid_kick for i,j in xx]
+					ny	   = [rsin*(lateral_scale*i)+rcos*(lateral_scale*j)+pos[1]+random.random()*lipid_kick for i,j in xx]
 
 					az	   = np.array([ leaflet*-2+pos[2]+leaflet*(0.5+(i-min(az)))*options["-bd"].value for i in az ])
 					if leaflet == 1:
