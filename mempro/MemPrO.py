@@ -843,6 +843,26 @@ class PDB_helper:
 			self.normals = turn(self.normals)
 		return float(np.degrees(np.arccos(min(1.0,c))))
 
+	def align_symmetry_axis(self,axis):
+		axis = np.asarray(axis,dtype=float)
+		axis /= np.linalg.norm(axis)
+		target = np.array([0.0,0.0,1.0])
+		c = float(np.clip(np.dot(axis,target),-1.0,1.0))
+		if c < -1.0+1e-12:
+			rot = np.diag([1.0,-1.0,-1.0])
+		else:
+			v = np.cross(axis,target)
+			vx = np.array([[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]])
+			rot = np.eye(3)+vx+vx@vx/(1.0+c)
+		turn = lambda x: jnp.asarray(np.einsum("...j,ij->...i",np.asarray(x),rot))
+		self.surface_poses = turn(self.surface_poses)
+		self.poses = turn(self.poses)
+		self.all_poses = turn(self.all_poses)
+		self.spheres = turn(self.spheres)
+		if np.ndim(self.normals) >= 1 and np.shape(self.normals)[-1] == 3:
+			self.normals = turn(self.normals)
+		return float(np.degrees(np.arccos(c)))
+
 	def recenter_bvals(self):
 		#Mean of the surface beads with a weight (b-value) of at least 1e-5, in NumPy
 		sp = np.asarray(self.surface_poses)
@@ -857,7 +877,7 @@ class PDB_helper:
 		
 #This is the main orientation class
 class MemBrain:
-	def __init__(self,data,int_data,peri,force_calc,pg_layer_pred,mem_data,gcurv,dbmem,write_bfac,rank_sort):
+	def __init__(self,data,int_data,peri,force_calc,pg_layer_pred,mem_data,gcurv,dbmem,write_bfac,rank_sort,symmetry_constraint=False):
 		#We use interactions strengths from martini using a POPE(Q4p)/POPG(P4)/POPC(Q1)? lipid as a template
 		self.int_data = int_data
 		self.W_B_mins = int_data[0]
@@ -954,6 +974,7 @@ class MemBrain:
 		self.write_bfac = write_bfac
 		
 		self.rank_sort = rank_sort
+		self.symmetry_constraint = symmetry_constraint
 		
 		self.build_no = data[8]
 		
@@ -1021,6 +1042,7 @@ class MemBrain:
 	#run with the same options, so traced programs are also reused in memory. Results of a run (minima etc.) are
 	#children too but vary in size, so the hot programs are called through lean(), which leaves them out.
 	_STATIC = ("peri","force_calc","pg_layer_pred","gcurv","dbmem","write_bfac","rank_sort","build_no",
+		"symmetry_constraint",
 		"memt_tails","memt_heads","memt_total","memt_tails_om","memt_heads_om","memt_total_om","charge_mult","charge_mult_om",
 		"numa","numb","cut_a","cut_b","nums","only_top","red_cpus","gamma_val","lr_pos","lr_heights","lr_cens",
 		"pg_charge","pg_thickness","sheet_charge")
@@ -1922,6 +1944,8 @@ class MemBrain:
 			change = -(rms_change/rms_grad)*grad
 			change = change.at[0].set(change[0]*descent)
 			change = change.at[num-1].set(change[num-1]*curv_descent)
+			if self.symmetry_constraint:
+				change = change.at[2:5].set(0)
 			
 			
 			data = data.at[:num].set(data[:num]+change)
@@ -2017,7 +2041,10 @@ class MemBrain:
 		cut = jnp.nanpercentile(jnp.where(valid,nnh,jnp.nan),98)
 		in_core = (nnh>=cut)*valid
 		core = jnp.sum(jnp.where(in_core[:,None],sposes,0.0),axis=0)/jnp.sum(in_core)
-		start_zdirs = jax.vmap(lambda a: position_point_jit(0,a[1],a[0],jnp.array([[0.0,0.0,1.0]]))[0])(angs)
+		if self.symmetry_constraint:
+			start_zdirs = jnp.tile(jnp.array([0.0,0.0,1.0]),(angs.shape[0],1))
+		else:
+			start_zdirs = jax.vmap(lambda a: position_point_jit(0,a[1],a[0],jnp.array([[0.0,0.0,1.0]]))[0])(angs)
 		start_xydirs = jax.vmap(lambda a: position_point_jit(0,a[1],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2])(angs)
 		return jax.vmap(lambda zdir,xydir: position_pointv2(0,zdir,xydir,core[None])[0])(start_zdirs,start_xydirs)
 		
@@ -2028,7 +2055,10 @@ class MemBrain:
 	def start_configurations(self,grid_size,start_z,zdist,angs):
 		pos_grid = jnp.zeros((grid_size,9))
 		def min_plot_fun_1(pos_grid,ind):
-			start_zdir = position_point_jit(0,angs[ind][1],angs[ind][0],jnp.array([[0.0,0.0,1.0]]))[0]
+			if self.symmetry_constraint:
+				start_zdir = jnp.array([0.0,0.0,1.0])
+			else:
+				start_zdir = position_point_jit(0,angs[ind][1],angs[ind][0],jnp.array([[0.0,0.0,1.0]]))[0]
 			start_xydir =  position_point_jit(0,angs[ind][1],0.0,jnp.array([[0.0,-1.0,0.0]]))[0,:2]
 			#Using a different starting insertion depth for peripheral proteins
 			if self.peri:
@@ -3819,6 +3849,105 @@ def write_streamlined(work_dir,out_dir):
 	shutil.rmtree(work_dir)
 	print("Best orientation written to "+out_dir+"oriented.pdb")
 
+def detect_symmetry_axis(path):
+	from itertools import combinations
+
+	chains = {}
+	with open(path) as fh:
+		for line in fh:
+			if line.startswith("ENDMDL"):
+				break
+			if not line.startswith("ATOM  ") or len(line) < 54 or line[16] not in " A":
+				continue
+			atom = line[12:16].strip()
+			if atom not in ("CA","BB"):
+				continue
+			chain = line[21].strip() or "_"
+			key = (line[22:26].strip(),line[26].strip())
+			try:
+				point = np.array([float(line[i:i+8]) for i in (30,38,46)])
+			except ValueError:
+				continue
+			entry = chains.setdefault(chain,{"CA":{},"BB":{}})
+			entry[atom].setdefault(key,(line[17:20].strip(),point))
+
+	points = {chain:(entry["CA"] if len(entry["CA"]) >= 20 else entry["BB"])
+		for chain,entry in chains.items()}
+	points = {chain:data for chain,data in points.items() if len(data) >= 20}
+	if len(points) < 2:
+		raise ValueError("need at least two protein chains with 20 or more matching CA or BB positions to detect symmetry")
+
+	fits = {}
+	names = list(points)
+	for a,b in combinations(names,2):
+		common = [key for key in points[a].keys() & points[b].keys()
+			if points[a][key][0] == points[b][key][0]]
+		if len(common) < 20 or len(common)/min(len(points[a]),len(points[b])) < 0.75:
+			continue
+		p = np.array([points[a][key][1] for key in common])
+		q = np.array([points[b][key][1] for key in common])
+		pc,qc = p.mean(axis=0),q.mean(axis=0)
+		u,_,vt = np.linalg.svd((p-pc).T@(q-qc))
+		rot = u@np.diag([1.0,1.0,np.linalg.det(u@vt)])@vt
+		trans = qc-pc@rot
+		rmsd = float(np.sqrt(np.mean(np.sum((p@rot+trans-q)**2,axis=1))))
+		if rmsd <= 3.0:
+			fits[(a,b)] = (rot,trans,rmsd)
+
+	# Find connected groups of matching subunits, allowing unrelated chains in the same PDB.
+	components = []
+	unseen = set(names)
+	while unseen:
+		root = unseen.pop()
+		component,stack = {root},[root]
+		while stack:
+			current = stack.pop()
+			for other in list(unseen):
+				if (current,other) in fits or (other,current) in fits:
+					unseen.remove(other)
+					component.add(other)
+					stack.append(other)
+		components.append(component)
+
+	for component in sorted(components,key=len,reverse=True):
+		order = len(component)
+		if order < 2:
+			continue
+		step = 360.0/order
+		axes,weights = [],[]
+		for (a,b),(rot,trans,rmsd) in fits.items():
+			if a not in component or b not in component:
+				continue
+			angle = float(np.degrees(np.arccos(np.clip((np.trace(rot)-1)/2,-1.0,1.0))))
+			steps = int(round(angle/step))
+			if steps < 1 or steps >= order or abs(angle-steps*step) > 25.0:
+				continue
+			values,vectors = np.linalg.eig(rot.T)
+			axis = np.real(vectors[:,np.argmin(np.abs(values-1.0))])
+			axis /= np.linalg.norm(axis)
+			axial_shift = abs(float(np.dot(trans,axis)))
+			if axial_shift > 3.0:
+				continue
+			axes.append(axis)
+			weights.append(max(0.01,1.0/(rmsd+0.1)**2))
+		if len(axes) < order-1:
+			continue
+		matrix = sum(weight*np.outer(axis,axis) for axis,weight in zip(axes,weights))
+		_,vectors = np.linalg.eigh(matrix)
+		axis = vectors[:,-1]
+		axis /= np.linalg.norm(axis)
+		axis_errors = [np.degrees(np.arccos(np.clip(abs(np.dot(axis,a)),0.0,1.0))) for a in axes]
+		if max(axis_errors) > 20.0:
+			continue
+		if axis[np.argmax(np.abs(axis))] < 0:
+			axis = -axis
+		return axis,order,float(np.average([fits[pair][2] for pair in fits
+			if pair[0] in component and pair[1] in component]))
+
+	if fits:
+		raise ValueError("matching chains were found, but their rotations do not support a consistent cyclic symmetry axis")
+	raise ValueError("no sufficiently similar multi-chain assembly was found for symmetry detection")
+
 def main():
 	import importlib.resources
 	try:
@@ -3865,6 +3994,8 @@ def main():
 	parser.set_defaults(long_axis="on")
 	parser.add_argument("-side","--sidedness",choices=["auto","off"],help="Which way up the protein goes: auto puts the extracellular side up (Insane4MemPrO -u) and the cytoplasmic side (the periplasm, for outer-membrane proteins) at -z (-l), from lipid anchors and beta-barrels, or positive-inside for helical proteins; off keeps MemPrO's orientation (Default: auto)")
 	parser.set_defaults(sidedness="auto")
+	parser.add_argument("--symmetry",action="store_true",help="Automatically detect a cyclic symmetry axis from matching protein chains and constrain it to the membrane normal (Default: off)")
+	parser.set_defaults(symmetry=False)
 	parser.add_argument("-itp","--itp_file",help="Path to force field (martini_v3.itp)")
 	parser.set_defaults(itp_file=_default_itp)
 	parser.add_argument("-insane","--insane_path",help="Path to Insane4MemPrO.py")
@@ -4142,6 +4273,15 @@ def run(args,argv):
 	if(not os.path.exists(fn)):
 		print("ERROR: Cannot find file: "+fn)
 		exit()
+	symmetry_axis = None
+	symmetry_order = None
+	symmetry_rmsd = None
+	if args.symmetry:
+		try:
+			symmetry_axis,symmetry_order,symmetry_rmsd = detect_symmetry_axis(fn)
+		except ValueError as err:
+			raise SystemExit("ERROR: --symmetry: "+str(err)) from err
+		print("Detected C%d symmetry axis (mean chain-fit RMSD %.2f A)"%(symmetry_order,symmetry_rmsd))
 
 	orient_dir = args.output
 
@@ -4203,11 +4343,15 @@ def run(args,argv):
 	PDB_helper_test.recenter_bvals()
 
 	#For periplasmic spanning proteins we start with the longest dimension in the Z-axis
-	if(not args.dual_membrane):
+	if(not args.dual_membrane and not args.symmetry):
 		jax.block_until_ready(PDB_helper_test.starting_orientation_v2())
 
+	if args.symmetry:
+		angle = PDB_helper_test.align_symmetry_axis(symmetry_axis)
+		print("Symmetry axis turned onto z; membrane tilt is constrained (input axis was %.1f degrees from z)"%angle)
+
 	### FOR TESTING PURPOSES ONLY ##########################################
-	if(not args.dual_membrane):
+	if(not args.dual_membrane and not args.symmetry):
 		PDB_helper_test.test_start([0,np.random.random()*np.pi,np.random.random()*np.pi/2])
 	########################################################################
 
@@ -4216,12 +4360,12 @@ def run(args,argv):
 
 	#We extract the data from the PDB helper class and pass it to the main orientation class
 	#-dm: the long axis along z first (unless -la off), as the starting separation is estimated along z
-	if(args.dual_membrane and args.long_axis == "on"):
+	if(args.dual_membrane and args.long_axis == "on" and not args.symmetry):
 		print("Long axis turned onto z for the double-membrane search (it was %.1f degrees from z)"%PDB_helper_test.align_long_axis())
 	data = PDB_helper_test.get_data()
 
 	#Creating MemBrain class
-	Mem_test = MemBrain(data,int_data,args.peripheral,0,args.predict_pg_layer,mem_data,args.curvature,args.dual_membrane,args.write_bfactors,ranker)
+	Mem_test = MemBrain(data,int_data,args.peripheral,0,args.predict_pg_layer,mem_data,args.curvature,args.dual_membrane,args.write_bfactors,ranker,args.symmetry)
 	#-sl keeps no graphs, so they are not drawn
 	Mem_test.make_plots = not args.streamlined
 
