@@ -13,7 +13,7 @@ from collections import deque
 jax.config.update("jax_enable_x64",True)
 jax.config.update("jax_platform_name","cpu")
 
-# Modify insane to take in arbitary lipid definition strings and use them as a template for lipids
+# Modify Insane to accept arbitrary lipid definition strings and use them as lipid templates.
 # Also take in lipid name 
 # Edits: by Helgi I. Ingolfsson (all edits are marked with: # HII edit - lipid definition )
 
@@ -272,8 +272,8 @@ lipidsa.update({	  #  1	2   3   4   5   6   7   8   9  10  11  12  13  14  15  1
 # KLA template: bead centres of the CHARMM36 Kdo2-lipid A in cg2at (fragments/.../KLA.pdb), mapped as in CCD2AT
 # (Ref_data/KLA_CG.txt): the Martini 3 Re-LPS mapping of Brandner et al., J. Chem. Theory Comput. 2024 (ct4c00374),
 # Table S1 for the sugars, phosphates and linkers, acyl chains split as the published 49-bead topology; virtual sites
-# at the centre of their ring. x/y in units of 0.25 nm scaled by 0.7 (so lipids fit at 1.67 nm^2 with random
-# rotations), z in units of 0.3 nm (-bd)
+# at the centre of their ring. x/y are stored in 0.25 nm units; placement applies a 0.5 lateral scale so lipids fit
+# at 1.67 nm^2 with random rotations. z is stored in 0.3 nm units (-bd).
 moltype = "LPS"
 lipidsx[moltype] = (-0.04, -0.36, 0.36, 0.03, -0.98, 0.65, -0.27, -0.58, -0.59, -0.63, -0.67, 0.76, 1.15, 1.34, 1.55, -0.07, -0.39, -0.38, -0.31, -0.80, -0.21, -0.08, -0.25, 0.05, 0.22, 0.32, 0.42, -0.24, -0.18, -0.27, -0.26, -0.72, -0.51, -0.33, 0.49, 0.77, 1.08, -0.46, -0.79, -0.19, -0.40, -0.83, -1.12, 0.63, 0.73, 1.16, 0.93, 0.49, 0.78)
 lipidsy[moltype] = (-0.44, -0.98, -1.00, -0.73, -1.43, -1.02, -1.47, -1.34, -1.54, -1.55, -1.53, -1.06, -0.98, -1.01, -1.05, 0.27, 0.57, 0.78, 0.55, 1.50, 0.94, 0.04, 1.68, 2.38, 2.84, 3.10, 3.52, 1.43, 1.79, 2.22, 0.11, -0.23, -0.23, -0.20, 0.07, 0.19, 0.33, 0.46, 0.07, -0.17, 0.03, 0.97, -0.54, -0.19, 0.17, 0.21, 0.11, -0.73, 0.81)
@@ -1029,7 +1029,7 @@ def readBox(a):
 		return pdbBoxRead("CRYST1 "+" ".join([str(i) for i in x]))
 	else:			# GRO format
 		return x[0],x[3],x[4],x[5],x[1],x[6],x[7],x[8],x[2]
-#A helper function the writes and arbritrary PDB file
+# A helper function that writes an arbitrary PDB file.
 def write_point(points,fn):
 	new_file = open(fn,"w")
 	count = 0
@@ -1404,7 +1404,7 @@ def DiskGridFib(n,rad):
 	return grid_points	
 
 #All functions that follow return a set of 3d coordinates and normals. This is all that is needs for later in the code
-#where the actaul lipids are built
+# Where the actual lipids are built.
 
 #This function creates a set of points with inverted curvature. The points are placed such that they are evenly distributed.	
 def InvSphereGrid(den,inner_rad,start_ang,orad):
@@ -1618,7 +1618,7 @@ def get_phosphate_depth(lipids):
 	return depth/total
 
 
-#This uses all the above to build the micelle. Using contours with radius and height varing as a semi circle
+# This uses all the above to build the micelle, using contours with radius and height varying as a semicircle.
 #Additionally the center is filled with a disc of lipids
 def build_micelle(area_l,all_cens,grid,grid_vals,coff,pbcx,pbcy,avlip_len):
 	dims = np.array([pbcx,pbcy,0])
@@ -1882,7 +1882,7 @@ def flip_link(all_lines,lyind,lind,bind):
 			break
 	return all_linesT, True
 			 
-#Similar algo to above, but doesn't flip. This is used to determin the length of oligomers
+# Similar algorithm to the above, but doesn't flip. This is used to determine the length of oligomers.
 def count_olig(all_lines,lyind,lind,bind):
 	done = False
 	count = 1
@@ -2264,7 +2264,7 @@ def cross_link(all_lines,pbcy,cper,per33,lper,oper):
 	   
 	return all_lines
 	
-#uses count_olig to determin distribution of oligomer lengths
+# Uses count_olig to determine the distribution of oligomer lengths.
 def count_all_olig(all_lines):
 	test_lines = all_lines[np.logical_and(all_lines[:,:,:,5] == 1,all_lines[:,:,:,4] == 0),:]
 	olig_lens = np.zeros(test_lines.shape[0])
@@ -2737,11 +2737,11 @@ def get_box_slice(points,p,r):
 	
 	
 #Protein beads a lipid's path could reach: the path starts at poser+si and moves at most one tail step
-#per step, and get_box_slice looks up to sqrt(3)*exprot from each point
-def near_protein(prot_tree,prot_coords,poser,si,tails,exprot):
+# per step, and get_box_slice looks up to sqrt(3)*fudge_radius from each point
+def near_protein(prot_tree,prot_coords,poser,si,tails,fudge_radius):
 	if prot_tree is None:
 		return prot_coords
-	reach = np.linalg.norm(si)+len(tails)*tails[1]+np.sqrt(3)*exprot+1e-6
+	reach = np.linalg.norm(si)+len(tails)*tails[1]+np.sqrt(3)*fudge_radius+1e-6
 	return prot_coords[prot_tree.query_ball_point(poser,reach)]
 	
 #This is a function for sorting atoms for a neater topology file
@@ -2851,7 +2851,7 @@ def get_charge(lz,uz):
 	return total_charge,pcharge,mcharge,pgcharge
 
 
-#This function creates a list of indicies containing a PG oligomer	
+# This function creates a list of indices containing a PG oligomer.
 def count_olig_list(all_lines,lyind,lind,bind):
 	done = False
 	count = 1
@@ -3059,7 +3059,7 @@ def update_pos_jax(ppos,pvel,pacc,bonds,dt,box_size,plys,all_p_pad,all_p_lens,ng
 	ppos = enforce_pbc_jax(ppos,box_size)
 	return ppos,pvel,pacc
 
-#getting the total contraction/extention force over each bond
+# Getting the total contraction/extension force over each bond.
 @jax.jit
 def get_boxforce_jax(bonds,ppos,box_size):
 	total_force = jnp.zeros(2)
@@ -3290,7 +3290,7 @@ def relax_pg(gposes,box_size,tol,all_p):
 	return box_size,gposes
 
 
-#This function uses a flood fill algorithm to identifiy the inside of a protein. This works better than the basic method used in ring.
+# This function uses a flood-fill algorithm to identify the inside of a protein. This works better than the basic method used in ring.
 def flood_fill(grid,add_in):
 	#Each cell is queued at most once (seen), so this is linear in the grid size
 	to_test = deque([(0,0)])
@@ -3431,8 +3431,8 @@ Input/output related options
 	("-in_t",	  Option(str,		 1,		None, "Input template for placement of multiple proteins.")),
 	("-fs",	  Option(str,		 1,		None, "Input text file with multiple proteins")),
 	"""
-Options related to system size. It is reccomended to use -x, -y, -z only. 
-Many options that were available here have been removed and will be readded 
+Options related to system size. It is recommended to use -x, -y, -z only.
+Many options that were available here have been removed and will be re-added.
 at a later date.
 """,
 	("-d",	  Option(float,	   1,		   0, "Distance between periodic images (nm)")),
@@ -3474,7 +3474,7 @@ are not specified. Curvature can be specified using -curv.
 	("-curv_o",		Option(str,		1,		  "0,0,1", "Curvature of the outer membrane, see -curv")),
 	("-curv_ext",		Option(float,		1,		  3, "Extent of curved region in the absence of a protein.")),
 	#("-pore",		Option(bool,		0,		  None, "Create a pore, with inner radius equal to -curv_ext and length equal to -ps")),
-	("-loc",	  Option(str,		 1,		None, "Currently WIP do not use. Input .npz for localisation data to bias lipid arangment.")),
+	("-loc",	  Option(str,		 1,		None, "Currently WIP; do not use. Input .npz for localisation data to bias lipid arrangement.")),
 	("-l_loc",	  Option(lipL_loc.append, 1,   None, "Currently WIP do not use. Lipid type for localisation")),
 	("-u_loc",	  Option(lipU_loc.append, 1,   None, "Currently WIP do not use. Lipid type for localisation")),
 	("-micelle",		Option(bool,		0,		  None, "Builds a micelle around a protein instead of a bilayer")),
@@ -3492,8 +3492,8 @@ Peptidoglycan layer related options.
 	("-cper",		Option(float,		1,		  0.4, "Percentage of crosslinks.")),
 	("-lper",		Option(float,		1,		  0.1, "Percentage of crosslinks that are between layers.")),
 	("-per33",		Option(float,		1,		  0.03, "Percentage of 3-3 crosslinks, all other crosslinks will be 3-4.")),
-	("-oper",		Option(float,		1,		  1, "Percentage chance of a monomer linking with a oligomer. (Actual change of link is cper*oper)")),
-	("-gdist",		Option(str,		1,		  "0.75,4,8.9,0.25,10,45", "Distribution of glycan strand lengths. Format as weight 1,standard deviation 1,mean 1,weight 2..., were each triple describes a gaussian. The sum of these forms the distribution.")),
+	("-oper",		Option(float,		1,		  1, "Percentage chance of a monomer linking with an oligomer. (Actual chance of a link is cper*oper)")),
+	("-gdist",		Option(str,		1,		  "0.75,4,8.9,0.25,10,45", "Distribution of glycan strand lengths. Format as weight 1, standard deviation 1, mean 1, weight 2..., where each triple describes a Gaussian. The sum of these triples forms the distribution.")),
 	"""
 Protein related options. -fudge gives the exclusion radius around the protein.
 """,
@@ -3995,7 +3995,7 @@ if not tm or options["-ct"].value != None or using_temp:
 	pbcz = pbcSetZ and pbcSetZ[2]
 
 ## B. PROTEIN ---
-	#for writing a template for muliple protein placments
+	# For writing a template for multiple protein placements.
 	if(options["-ct"].value != None):
 		print("Writing template file...")
 		new_file = open(options["-ct"].value,"w")
@@ -4079,7 +4079,7 @@ if not tm or options["-ct"].value != None or using_temp:
 		tm_lip	= [ Structure(i) for i in tm ]
 		tm	= [ Structure(i) for i in tm ]
 
-def accessable(grid):
+def accessible(grid):
 	ngrid = jnp.zeros_like(grid)
 	def aloop1(ngrid,ind1):
 		def aloop2(ngrid,ind2):
@@ -4234,7 +4234,7 @@ if(using_temp or tm):
 									gridx,gridy = put_into_grid(im[:2],[xext+2,yext+2],[20,20],[xmin-1,ymin-1])
 									gridd[gridx,gridy] =1
 
-								gridd = 1-np.array(accessable(1-jnp.array(gridd)))
+								gridd = 1-np.array(accessible(1-jnp.array(gridd)))
 								gridd = 1-flood_fill(gridd,True)
 								gridd = 1-flood_fill(gridd,True)
 
@@ -4302,10 +4302,10 @@ print("Done")
 
 PGL = Structure()
 if(Num_PGL > 0):
-	print("Begining to build PG layer...")
+	print("Beginning to build PG layer...")
 	spaceing = 2.5
 	z_poses = np.linspace(-spaceing*(Num_PGL-1)/2,spaceing*(Num_PGL-1)/2,Num_PGL)
-	exprot = float(options["-fudge"].value)
+	fudge_radius = float(options["-fudge"].value)
 	prev_str = ["[ atoms ]\n","[ bonds ]\n","[ constraints ]\n","[ angles ]\n","[ dihedrals ]\n"]
 	prev_nos = [1,0]
 	print("Creating glycan strands...")
@@ -4318,7 +4318,7 @@ if(Num_PGL > 0):
 	mono = olig_lens[olig_lens == 1].shape[0]/total_clink
 	dimer = olig_lens[olig_lens == 2].shape[0]/total_clink
 	olig_plus = olig_lens[olig_lens > 2].shape[0]/total_clink
-	print("Momomer:",mono)
+	print("Monomer:",mono)
 	print("Dimer:",dimer)
 	print("Higher oligomer:",olig_plus)
 	print("Writing ITP for PG layer...")
@@ -4490,7 +4490,7 @@ if(Num_PGL > 0):
 membrane = Structure()
 mi_rad = 0
 if lipL:
-	print("Begining to build lipid bilayer(s)...")
+	print("Beginning to build lipid bilayer(s)...")
 	#reading inputs
 	if options["-apl_ff"].value not in ("exp","m3"):
 		print("ERROR: -apl_ff must be exp or m3")
@@ -4657,7 +4657,7 @@ if lipL:
 	tailsUs = [tailsU,tailsUO]
 	tailsLs = [tailsL,tailsLO]
 
-	exprot = float(options["-fudge"].value)
+	fudge_radius = float(options["-fudge"].value)
 	zdist = float(options["-ps"].value)
 	print("Calculating lipid positions...")
 	
@@ -4676,14 +4676,14 @@ if lipL:
 			poser = np.array([gp[0],gp[1],float(mtdef)*gp[2]+zdist*(gi*2-1)+float(zdef)+membrane_shift(gi)])
 			coll = False
 			path = [poser+si]
-			near_prot = near_protein(prot_tree,prot_coords,poser,si,tails,exprot) if tm else prot_coords
+			near_prot = near_protein(prot_tree,prot_coords,poser,si,tails,fudge_radius) if tm else prot_coords
 			for it,dr in enumerate(tails):
 				if tm:
-					prot_sliceb = get_box_slice(near_prot,path[-1],[exprot,exprot,exprot])
+					prot_sliceb = get_box_slice(near_prot,path[-1],[fudge_radius,fudge_radius,fudge_radius])
 				else:
 					prot_sliceb = jnp.empty((0,3))
 				if not prot_sliceb.size == 0:
-					path_bead,can_place = place_bead(np.asarray(path[-1]),tails[1],sgn*direc,SpGrid,prot_sliceb,exprot)
+					path_bead,can_place = place_bead(np.asarray(path[-1]),tails[1],sgn*direc,SpGrid,prot_sliceb,fudge_radius)
 				else:
 					path_bead = path[-1]-sgn*direc*tails[1]
 					can_place =True

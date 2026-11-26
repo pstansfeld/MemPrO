@@ -367,7 +367,7 @@ class PDB_helper:
 						return False
 		return True
 	
-	#converts a atomistic resiude to cg representation
+	# Converts an atomistic residue to a coarse-grained representation.
 	#This is by no means a good coarse graining but as there is no MD involved and only approximate locations are needed
 	#this is good enough. Orientations using this CG rep and a Martinized CG rep are very similar.
 	def convert_to_cg(self,res_type,poses,b_vals,atom_types):
@@ -411,7 +411,7 @@ class PDB_helper:
 		return np.array(beads_pos),np.array(bead_types),np.array(reses),np.array(new_bvals),map_to_beads
 
 
-	#Loads a atomistic pdb into a cg representation
+	# Loads an atomistic PDB into a coarse-grained representation.
 	def load_atomistic_pdb(self):
 		self.reses = []
 		self.poses = np.empty((0,3))
@@ -628,7 +628,7 @@ class PDB_helper:
 			self.b_vals = jnp.asarray(np.ones(self.b_vals.shape,dtype=self.b_vals.dtype))
 		return pos_mean
 
-	### Begining of code for getting the surface of the CG protein ###
+	### Beginning of code for getting the surface of the coarse-grained protein ###
 
 	#We create a sphere using a fibonacci spiral lattice to ensure a even distribution 
 	def create_ball(self,brad,bsize):
@@ -876,7 +876,7 @@ class MemBrain:
 		self.charge_mult_om = mem_data[1]
 
 		#These values are hyper parameters for the minimisation algorithm. The values here were found mostly by trial and error
-		#It is not reccomended to change these.
+		# It is not recommended to change these.
 		self.gamma_val = 0.999
 		self.lr_pos = 4e-5
 		self.lr_heights = 0.025
@@ -935,10 +935,10 @@ class MemBrain:
 		#We need a flag for peripheral proteins
 		self.peri = peri
 		
-		#A flag for preforming force calculationss
+		# A flag for performing force calculations.
 		self.force_calc  = force_calc
 		
-		#We need to flag if a curvature minimisation has occured
+		#We need to flag if a curvature minimisation has occurred
 		self.curva = False
 		
 		#A flag for predicting the PG cell wall
@@ -972,7 +972,7 @@ class MemBrain:
 		self.red_cpus = no_cpu
 
 		
-		#Placeholder vars TODO remove vars ony longer in use
+		# Placeholder variables: TODO remove variables no longer in use.
 		self.no_mins=0
 		self.result_grid = jnp.zeros((1,1))
 		self.start_grid = jnp.zeros((1,1))
@@ -1055,9 +1055,9 @@ class MemBrain:
 
 
 
-	### Begining of orientation code ###
+	### Beginning of orientation code ###
 	
-	#We use sigmoids to create a smoothly varying funtion to determin the potential of a single point
+	#We use sigmoids to create a smoothly varying function to determine the potential of a single point
 	@jax.jit
 	def smjh(self,x,grad,bead_num,mem_structure):
 		bd1 = (1.0-sj(x-mem_structure[0],grad))*self.W_B_mins[bead_num]+sj(x-mem_structure[0],grad)*self.LH1_B_mins[bead_num]
@@ -1071,7 +1071,7 @@ class MemBrain:
 		return bd8-self.W_B_mins[bead_num]
 		
 	#There are 2 options here. One of them considers the hydration of the lipid head region the other does not. It does not seem
-	#to have much of an impact which is used, likley as the main driving force comes from the hydrophobicity.
+	#to have much of an impact; this is likely because the main driving force comes from the hydrophobicity.
 	@jax.jit
 	def smj(self,x,grad,bead_num,mem_structure):
 		l1min = (self.W_B_mins[bead_num]+self.LH1_B_mins[bead_num]-jnp.abs(self.W_B_mins[bead_num]-self.LH1_B_mins[bead_num]))/2
@@ -1178,7 +1178,7 @@ class MemBrain:
 		plt.show()
 		
 		
-	#This is function fot calculating the potential of the PG layer for a bead at a z value
+	#This function calculates the potential of the PG layer for a bead at a z value
 	@jax.jit
 	def pg_pot_at_z(self,z,ball,bead_type):
 		smoothness = 2
@@ -1198,11 +1198,11 @@ class MemBrain:
 		tot_pot = tot_pot_count[0]/(tot_pot_count[1]+1e-5)
 		return tot_pot
 	
-	#This is a more accurate calculation of the electrostatic potentail contribution. Currently not in use, as it may not be more accurate. Further 
+	#This is a more accurate calculation of the electrostatic potential contribution. Currently not in use, as it may not be more accurate. Further
 	#investigation is required to find the best method of calculating charge contributions.	
 	@jax.jit
 	def new_charge_diff(self,z,zdist,curv,bead_type,mem_structure_im,mem_structure_om,c_scal):
-		charge_const = -92.64 #This is hard coded calculated such that units line up with paramters from martini
+		charge_const = -92.64 #This is hard coded; calculate such that units line up with parameters from Martini
 		charge_const_im = charge_const*(self.charge_mult*c_scal)*self.Charge_B_mins[bead_type]
 		charge_const_om = charge_const*(self.charge_mult_om*c_scal)*self.Charge_B_mins[bead_type]
 		tot_charge = 0
@@ -1272,7 +1272,7 @@ class MemBrain:
 	#Vectorised over the charge grid; per-point branches are jnp.where (with a safe divisor so unselected branches stay finite)
 	@jax.jit
 	def new_charge(self,z,zdist,curv,bead_type,mem_structure_im,mem_structure_om,c_scal):
-		charge_const = -92.64 #This is hard coded calculated such that units line up with paramters from martini
+		charge_const = -92.64 #This is hard coded; calculate such that units line up with parameters from Martini
 		charge_const_im = charge_const*(self.charge_mult)*self.Charge_B_mins[bead_type]
 		charge_const_om = charge_const*(self.charge_mult_om)*self.Charge_B_mins[bead_type]
 		zpos = z+zdist
@@ -1424,7 +1424,7 @@ class MemBrain:
 		
 		
 		
-	#This function calulates the potential as a vector of each bead's contribution. This is used when writing this info to PDB file.
+	#This function calculates the potential as a vector of each bead's contribution. This is used when writing this information to a PDB file.
 	#It is particularially useful when trying to understand why certain orientations are not working.
 	@jax.jit
 	def calc_pot_per_bead(self,position,mem_structure_im,mem_structure_om):
@@ -1464,7 +1464,7 @@ class MemBrain:
 
 	#The following functions are involved in finding the hydrphobic core of the protein
 	def get_hydro_core_v3(self):
-		numer = self.surface_poses.shape[0]
+		surface_count = self.surface_poses.shape[0]
 		sposes = self.surface_poses
 		hydro_val = jnp.array(self.W_B_mins)
 		hydro_index = jnp.array(jax.device_get(self.bead_types),dtype=int)
@@ -1473,7 +1473,7 @@ class MemBrain:
 		@jax.vmap
 		def gch1(ind):
 			ind_fix = ind
-			mens = jnp.zeros(numer+1)
+			mens = jnp.zeros(surface_count+1)
 			def gch2(mens,ind):
 				def in_r(mens):
 					vnd = jnp.array(mens[-1],dtype = int)
@@ -1484,25 +1484,25 @@ class MemBrain:
 					return mens
 				mens = jax.lax.cond(jnp.linalg.norm(sposes[ind]-sposes[ind_fix]) < 20,in_r,nin_r,mens)
 				return mens,ind
-			mens,_ = jax.lax.scan(gch2,mens,jnp.arange(numer))
+			mens,_ = jax.lax.scan(gch2,mens,jnp.arange(surface_count))
 			vnd = jnp.array(mens[-1],dtype = int)
 			nnh = jnp.sum(mens[:-1])/vnd
 			return nnh
-		nnh = gch1(jnp.arange(numer))
+		nnh = gch1(jnp.arange(surface_count))
 		cut = jnp.percentile(nnh,98)
 		core = jnp.mean(sposes[nnh>=cut],axis=0)
 		return core
 		
 	def get_hydro_core_v3_p1(self,zdir,xydir):
 		sposes = position_pointv2_jit(0,zdir,xydir,self.surface_poses)
-		numer = self.surface_poses.shape[0]
+		surface_count = self.surface_poses.shape[0]
 		hydro_val = jnp.array(self.W_B_mins)
 		hydro_index = jnp.array(jax.device_get(self.bead_types),dtype=int)
 		
 		@jax.vmap
 		def gch1(ind):
 			ind_fix = ind
-			mens = jnp.zeros(numer+1)
+			mens = jnp.zeros(surface_count+1)
 			def gch2(mens,ind):
 				def in_r(mens):
 					vnd = jnp.array(mens[-1],dtype = int)
@@ -1513,11 +1513,11 @@ class MemBrain:
 					return mens
 				mens = jax.lax.cond(jnp.linalg.norm(sposes[ind]-sposes[ind_fix]) < 20,in_r,nin_r,mens)
 				return mens,ind
-			mens,_ = jax.lax.scan(gch2,mens,jnp.arange(numer))
+			mens,_ = jax.lax.scan(gch2,mens,jnp.arange(surface_count))
 			vnd = jnp.array(mens[-1],dtype = int)
 			nnh = jnp.sum(mens[:-1])/vnd
 			return nnh
-		nnh = gch1(jnp.arange(numer))
+		nnh = gch1(jnp.arange(surface_count))
 		cut = jnp.percentile(nnh,98)
 		core = jnp.mean(sposes[nnh>=cut],axis=0)
 		return core
@@ -1879,16 +1879,15 @@ class MemBrain:
 		ep = 1e-8
 		tol = 1e-10
 		data = data.at[:num].set(starting_pos[:num])
-		decend = 0.0
-		curv_decend = 0.0
-		def zero(decend):
-			return decend
-		def not_zero(decend):
-			decend = 1.0
-			return decend
-		decend = jax.lax.cond(not self.dbmem,zero,not_zero,decend)
-		
-		curv_decend = jax.lax.cond(not self.gcurv,zero,not_zero,curv_decend)		
+		descent = 0.0
+		curv_descent = 0.0
+		def zero(descent):
+			return descent
+		def not_zero(descent):
+			descent = 1.0
+			return descent
+		descent = jax.lax.cond(not self.dbmem,zero,not_zero,descent)
+		curv_descent = jax.lax.cond(not self.gcurv,zero,not_zero,curv_descent)
 		data = data.at[num-1].set(0)
 		data = data.at[num*2:num*3].set(jnp.array([self.lr_pos]*num))#???
 		data = data.at[num*2+num-1].set(data[num*2+num-1]/100000)
@@ -1921,8 +1920,8 @@ class MemBrain:
 			rms_grad = jnp.sqrt(ep + data[num:num*2])
 			rms_change = jnp.sqrt(ep+data[num*2:num*3])
 			change = -(rms_change/rms_grad)*grad
-			change = change.at[0].set(change[0]*decend)
-			change = change.at[num-1].set(change[num-1]*curv_decend)
+			change = change.at[0].set(change[0]*descent)
+			change = change.at[num-1].set(change[num-1]*curv_descent)
 			
 			
 			data = data.at[:num].set(data[:num]+change)
@@ -1988,7 +1987,7 @@ class MemBrain:
 		final_pot_pos = final_pot_pos.at[num].set(self.calc_pot_jit(final_data[:num],self.mem_structure_im,self.mem_structure_om,0))
 		return final_pot_pos
 				
-	#We turn minimise into a paralelised method
+	#We turn minimise into a parallelised method
 	@partial(jax.jit,static_argnums=2)
 	def minimise_p(self,starting_pos,max_iter):
 		if use_gpu:
@@ -2062,7 +2061,7 @@ class MemBrain:
 		print("Batch size:",batch_size,"(GPU)" if use_gpu else "")
 		print("Number of batches:",no_runs)
 		times_taken = jnp.zeros(no_runs)
-		#This non JAX for loop is needed beacuse pmap doesn't interact well with scan
+		#This non-JAX for loop is needed because pmap doesn't interact well with scan
 		for i in range(no_runs):
 			timers = time.time()
 			print("Starting batch",str(i+1)+"/"+str(no_runs))
@@ -2144,7 +2143,7 @@ class MemBrain:
 			return new_pos
 		return new_pos
 
-	#A function for calculating which positions are equivilant. 
+	#A function for calculating which positions are equivalent.
 	#This will return all unique minima and there frequency
 	def collect_minima_info(self,grid_size):
 		pos_tracker = jnp.array([[0,0,1]],dtype="float64")
@@ -2179,7 +2178,7 @@ class MemBrain:
 			
 		res_spos,_ = jax.lax.scan(calc_poses_fun_1,res_spos,jnp.arange(grid_size))
 	
-		#Collecting minima which are equivilant
+		#Collecting minima which are equivalent
 		minima_types = jnp.zeros(grid_size+1,dtype = "int")
 		dtol_a = jnp.pi/24.0
 		dtol_z = 5
@@ -3091,7 +3090,7 @@ class MemBrain:
 tree_util.register_pytree_node(MemBrain,MemBrain._tree_flatten,MemBrain._tree_unflatten)
 tree_util.register_pytree_node(PDB_helper,PDB_helper._tree_flatten,PDB_helper._tree_unflatten)
 
-#A helper function the writes and arbritrary PDB file
+#A helper function that writes an arbitrary PDB file
 def write_point(points,fn,orient_dir):
 	new_file = open(os.path.join(orient_dir,fn),"w")
 	count = 0
@@ -3383,7 +3382,7 @@ def martini_pair_index(martini_file):
 		index.setdefault(line[:12],i)
 	return index
 
-#A fucntion that reads a martini file to get interaction strengths (memoised: each pair is looked up once per run)
+#A function that reads a Martini file to get interaction strengths (memoised: each pair is looked up once per run)
 #Pairs are found through martini_pair_index (one pass over the file); any pair not found at the start of a line
 #falls back to the original search for the first line containing it
 @lru_cache(maxsize=None)
@@ -3414,7 +3413,7 @@ def get_mem_def(martini_file):
 															   # #
 	return (W_B_mins,LH1_B_mins,LH2_B_mins,LH3_B_mins,LH4_B_mins,LT1_B_mins,LT2_B_mins,Charge_B_mins)	
 
-#Ploting some graphs of local minima. This is more complex than a simple plot as
+#Plotting some graphs of local minima. This is more complex than a simple plot as
 #The information is on a spiral lattice.
 def create_graphs(orient_dir,col_grid,pot_grid,angs,resa):
 	graph_mesh_cols = jnp.zeros((resa,resa,4))
@@ -3444,9 +3443,9 @@ def create_graphs(orient_dir,col_grid,pot_grid,angs,resa):
 				divided = graph_mesh[ind_fix,ind,:-1]/(graph_mesh[ind_fix,ind,-1]+1e-9)
 				def empty(divided):
 					return jnp.zeros(leng)#TODO add  nan
-				def nempty(divided):
+				def not_empty(divided):
 					return divided
-				divided = jax.lax.cond(graph_mesh[ind_fix,ind,-1] > 0.5, nempty,empty,divided)
+				divided = jax.lax.cond(graph_mesh[ind_fix,ind,-1] > 0.5, not_empty,empty,divided)
 				return ind_fix,divided
 			_,row = jax.lax.scan(div_fun_2,ind,jnp.arange(resa))
 			d_graph_mesh = d_graph_mesh.at[ind].set(row)
@@ -3470,7 +3469,7 @@ def create_graphs(orient_dir,col_grid,pot_grid,angs,resa):
 	plt.savefig(orient_dir+"local_minima_potential.png")
 	plt.clf()
 	
-#concerts three letter codes to one for transmembrane residue output
+# Converts three-letter codes to one-letter codes for transmembrane residue output.
 def three2one(s):
 	if(s == "ALA"):
 		return "A"
@@ -3994,9 +3993,9 @@ def run(args,argv):
 			exit()
 		np.random.seed(args.seed)
 
-	fliper = 1
+	flipper = 1
 	if args.flip:
-		fliper = -1
+		flipper = -1
 
 	add_reses = args.additional_residues.split(",")
 	if(len(add_reses) > 0):
@@ -4006,7 +4005,7 @@ def run(args,argv):
 				print("ERROR: Additional residue itp is required if using additional residues.")
 				exit()
 			if args.residue_cg_file == "":
-				print("WARNING: You have not added beading information for the added residues, this will cause an error if orienting a atomisitic input.")
+				print("WARNING: You have not added coarse-graining information for the added residues; this will cause an error if orienting an atomistic input.")
 
 	#Error checking user inputs
 	try:
@@ -4118,7 +4117,7 @@ def run(args,argv):
 			rang = i.strip()
 			rang = rang.split("-")
 			if(len(rang) != 2):
-				print("ERROR: Could not read value of -tm. Must be a comma seperated list of ranges e.g. 10-40,50-60.")
+				print("ERROR: Could not read value of -tm. Must be a comma-separated list of ranges, e.g. 10-40,50-60.")
 				exit()
 			try:
 				ranges.append([int(rang[0]),int(rang[1])])
@@ -4276,7 +4275,7 @@ def run(args,argv):
 		print("Done")
 
 	print("Writing data...")
-	Mem_test.write_oriented(fn,orient_dir," ".join(argv),fliper,args.sidedness)
+	Mem_test.write_oriented(fn,orient_dir," ".join(argv),flipper,args.sidedness)
 	print("Done")
 
 	if(build_system > 0):
